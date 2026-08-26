@@ -1,0 +1,61 @@
+{
+  "name": "codbsharepoint",
+  "version": "1.0.0",
+  "description": "Browser-native SharePoint compiler, validator, and packaging SDK",
+  "main": "dist/codbsharepoint.js",
+  "module": "dist/codbsharepoint.mjs",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/codbsharepoint.mjs",
+      "require": "./dist/codbsharepoint.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./tools": {
+      "import": "./dist/codbsharepoint-tools.mjs",
+      "require": "./dist/codbsharepoint-tools.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "build:watch": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "sharepoint",
+    "spfx",
+    "sppkg",
+    "browser",
+    "compiler",
+    "packager",
+    "webparts",
+    "microsoft-graph"
+  ],
+  "author": "City of Daytona Beach",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CityofDaytonaBeach/codbsharepoint.git"
+  },
+  "cdn": "https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/codbsharepoint@latest/dist/codbsharepoint.js",
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "sideEffects": false
+}
