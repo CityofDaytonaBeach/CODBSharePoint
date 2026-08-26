@@ -10,7 +10,8 @@ import type {
   SolutionConfig,
   SPFxVersion
 } from '../types/index.js';
-import { SPFx_COMPATIBILITY, escapeXml } from '../utils/helpers.js';
+import { SPFx_COMPATIBILITY } from '../types/index.js';
+import { escapeXml } from '../utils/helpers.js';
 
 // ---------------------------------------------------------------------------
 // Client-Side Manifests
