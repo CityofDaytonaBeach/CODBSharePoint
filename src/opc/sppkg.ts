@@ -97,7 +97,7 @@ export function generateSPPKG(ir: CODBIR, bundleFiles: Map<string, string | Uint
   vfs.addFile(`${solutionFolder}_version.txt`, ir.solution.version);
 
   // Convert to ZIP
-  return vfs.toZip() as unknown as Uint8Array;
+  return vfs.toZip();
 }
 
 // ---------------------------------------------------------------------------

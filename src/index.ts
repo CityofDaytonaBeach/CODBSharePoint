@@ -82,6 +82,46 @@ import {
 // OPC
 import { generateSPPKG, validateSPPKGStructure } from './opc/sppkg.js';
 
+// Provisioning artifacts
+import {
+  generateSharePointArtifacts,
+  generateThemeJson,
+  generateFormattingJson,
+  generateSiteScript,
+  generateProvisioningJson,
+  generatePageJson
+} from './provisioning/generator.js';
+
+// Localization
+import {
+  generateResx,
+  generateStringsModule,
+  generateLocalizationFiles,
+  resolveStrings
+} from './localization/generator.js';
+
+// Esbuild runtime (offline bundler control)
+import {
+  setWasmURL,
+  isAvailable as isEsbuildAvailable,
+  transformContent as esbuildTransform,
+  bundleFromVFS as esbuildBundle
+} from './bundler/esbuild-runtime.js';
+
+// Serverless storage
+import { createStorage, MemoryStorage, LocalStorageAdapter, IndexedDBStorage } from './storage/index.js';
+import type { StorageAdapter, StorageValue, StorageKind } from './storage/index.js';
+
+// Templates
+import { TemplateRegistry } from './templates/index.js';
+import type { ComponentTemplate, TemplateKind, TemplateRenderContext } from './templates/index.js';
+
+// Designer
+import { Designer } from './designer/index.js';
+
+// Static publish
+import { generateStaticPublish } from './publish/index.js';
+
 // Validator
 import { SPFxValidator } from './validator/spfx-validator.js';
 
@@ -539,12 +579,19 @@ export class CODBSharePoint {
     return new SharePointSimulator(config);
   }
 
+  designer(options: { storage?: StorageAdapter | StorageKind; templates?: ComponentTemplate[] } = {}): Designer {
+    return new Designer(this, options);
+  }
+
   // ---------------------------------------------------------------------------
   // Lower-level APIs
   // ---------------------------------------------------------------------------
 
   get compilerAPI() { return this.compiler; }
   get bundlerAPI() { return this.bundler; }
+  get storageAPI() { return { createStorage, MemoryStorage, LocalStorageAdapter, IndexedDBStorage }; }
+  get templatesAPI() { return { TemplateRegistry }; }
+  get publishAPI() { return { generateStaticPublish }; }
   get manifestAPI() {
     return {
       generatePackageSolution,
@@ -561,6 +608,33 @@ export class CODBSharePoint {
   get validatorAPI() { return this.validator; }
   get analyzerAPI() { return this.analyzer; }
   get securityAPI() { return this.securityScanner; }
+  get provisioningAPI() {
+    return {
+      generateSharePointArtifacts,
+      generateThemeJson,
+      generateFormattingJson,
+      generateSiteScript,
+      generateProvisioningJson,
+      generatePageJson
+    };
+  }
+  get localizationAPI() {
+    return {
+      generateResx,
+      generateStringsModule,
+      generateLocalizationFiles,
+      resolveStrings
+    };
+  }
+
+  get bundleAPI() {
+    return {
+      setWasmURL,
+      isEsbuildAvailable,
+      transform: esbuildTransform,
+      bundle: esbuildBundle
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // Static Methods
@@ -761,3 +835,33 @@ export { ToolAPIService } from './tools/index.js';
 export { SharePointSimulator } from './simulator/index.js';
 export { SPFxImporter } from './import/spfx-import.js';
 export { SPFxExporter } from './export/spfx-export.js';
+export {
+  generateSharePointArtifacts,
+  generateThemeJson,
+  generateFormattingJson,
+  generateSiteScript,
+  generateProvisioningJson,
+  generatePageJson
+} from './provisioning/generator.js';
+export {
+  generateResx,
+  generateStringsModule,
+  generateLocalizationFiles,
+  resolveStrings
+} from './localization/generator.js';
+export {
+  setWasmURL,
+  isAvailable as isEsbuildAvailable,
+  transformContent as esbuildTransform,
+  bundleFromVFS as esbuildBundle
+} from './bundler/esbuild-runtime.js';
+
+// Serverless authoring support
+export { Designer } from './designer/index.js';
+export type { ProjectManifest, ProjectSettings, DesignerBuilder } from './designer/index.js';
+export { TemplateRegistry } from './templates/index.js';
+export type { ComponentTemplate, TemplateKind, TemplateRenderContext } from './templates/index.js';
+export { createStorage, MemoryStorage, LocalStorageAdapter, IndexedDBStorage } from './storage/index.js';
+export type { StorageAdapter, StorageValue, StorageKind } from './storage/index.js';
+export { generateStaticPublish } from './publish/index.js';
+export type { StaticPublishOptions, StaticPublishResult } from './publish/index.js';

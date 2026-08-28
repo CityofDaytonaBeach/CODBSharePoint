@@ -34,7 +34,7 @@ export interface SPFxCompatibility {
   bundler: 'webpack' | 'none';
 }
 
-export const SPFx_COMPATIBILITY: Record<SPFxVersion, SPFxCompatibility> = {
+export const SPFx_COMPATIBILITY: Partial<Record<SPFxVersion, SPFxCompatibility>> = {
   '1.18.0': { spfx: '1.18.0', react: '17', typescript: '4.7', node: '16.13.x', scaffold: '@microsoft/sharepoint', buildTool: 'heft', bundler: 'webpack' },
   '1.19.0': { spfx: '1.19.0', react: '17', typescript: '4.7', node: '16.13.x', scaffold: '@microsoft/sharepoint', buildTool: 'heft', bundler: 'webpack' },
   '1.20.0': { spfx: '1.20.0', react: '17', typescript: '4.7', node: '18.17.x', scaffold: '@microsoft/sharepoint', buildTool: 'heft', bundler: 'webpack' },
@@ -62,7 +62,7 @@ export interface VFS {
   getFilesByPattern(pattern: string | RegExp): VFSFile[];
   hasFile(path: string): boolean;
   readAsString(path: string): string | undefined;
-  toZip(): Promise<Uint8Array>;
+  toZip(): Uint8Array;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +141,12 @@ export interface ProjectMetadata {
   buildTool: 'gulp' | 'heft';
 }
 
+export interface LocalizationConfig {
+  defaultLanguage: string;
+  languages: string[];
+  strings?: Record<string, Record<string, string>>;
+}
+
 // ---------------------------------------------------------------------------
 // Component Definitions
 // ---------------------------------------------------------------------------
@@ -175,6 +181,12 @@ export interface PreconfiguredEntry {
   description: string;
   officeFabricIconFontName?: string;
   properties: Record<string, unknown>;
+}
+
+export interface ComponentAsset {
+  path: string;
+  type?: string;
+  content?: string | Uint8Array;
 }
 
 // ---------------------------------------------------------------------------
@@ -572,6 +584,26 @@ export interface BuildResult {
   errors: BuildError[];
   warnings: BuildWarning[];
   duration: number;
+}
+
+export interface BuildError {
+  code: string;
+  message: string;
+  severity: 'error' | 'warning' | 'info' | 'critical';
+  category: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  fix?: string;
+}
+
+export interface BuildWarning {
+  code: string;
+  message: string;
+  severity?: 'error' | 'warning' | 'info';
+  category: string;
+  file?: string;
+  fix?: string;
 }
 
 // ---------------------------------------------------------------------------

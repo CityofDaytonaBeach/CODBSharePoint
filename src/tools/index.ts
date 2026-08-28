@@ -89,15 +89,18 @@ export class ToolAPIService implements ToolAPI {
   }
 
   addList(ir: CODBIR, list: ListDefinition): CODBIR {
-    return addList(ir, list);
+    addList(ir, list);
+    return ir;
   }
 
   addLibrary(ir: CODBIR, library: LibraryDefinition): CODBIR {
-    return addLibrary(ir, library);
+    addLibrary(ir, library);
+    return ir;
   }
 
   addColumn(ir: CODBIR, field: FieldDefinition): CODBIR {
-    return addColumn(ir, field);
+    addColumn(ir, field);
+    return ir;
   }
 
   async compile(ir: CODBIR, options?: Partial<BuildOptions>): Promise<BuildResult> {

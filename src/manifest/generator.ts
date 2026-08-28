@@ -136,7 +136,7 @@ export function generatePackageSolution(ir: CODBIR): Record<string, unknown> {
         videoUrl: solution.metadata.videoUrl || '',
         categories: solution.metadata.categories || []
       },
-      features: ir.features?.map(f => ({
+      features: ir.solution.features?.map(f => ({
         title: { default: f.title },
         description: { default: f.description },
         id: f.id,
@@ -166,7 +166,7 @@ export function generatePackageSolution(ir: CODBIR): Record<string, unknown> {
 
 export function generateFeatureXml(ir: CODBIR): string {
   const solution = ir.solution;
-  const features = ir.features || [];
+  const features = ir.solution.features || [];
 
   let xml = `<?xml version="1.0" encoding="utf-8"?>
 <Feature xmlns="http://schemas.microsoft.com/sharepoint/"

@@ -16,7 +16,10 @@ import { createVFS, type VFS } from '../core/vfs.js';
 
 export class SPFxExporter {
 
-  generateDeploymentManifest(ir: CODBIR, buildResult: BuildResult): DeploymentManifest {
+  generateDeploymentManifest(
+    ir: CODBIR,
+    buildResult: Partial<BuildResult>
+  ): DeploymentManifest {
     const permissions: DeploymentPermission[] = ir.graph.map(p => ({
       resource: p.resource,
       permission: p.scope,
@@ -35,6 +38,24 @@ export class SPFxExporter {
         type: 'library',
         name: l.title,
         description: l.description
+      })),
+      ...ir.themes.map(t => ({
+        type: 'theme',
+        name: t.name
+      })),
+      ...ir.formatting.map(f => ({
+        type: f.type,
+        name: f.name,
+        description: f.description
+      })),
+      ...ir.provisioning.map(p => ({
+        type: p.type,
+        name: p.name,
+        description: p.description
+      })),
+      ...ir.pages.map(p => ({
+        type: 'page',
+        name: p.name
       }))
     ];
 
@@ -81,7 +102,7 @@ export class SPFxExporter {
       requiresAdmin,
       permissions,
       provisioning,
-      warnings: buildResult.warnings.map(w => typeof w === 'string' ? w : w.message),
+      warnings: (buildResult.warnings || []).map(w => typeof w === 'string' ? w : w.message),
       instructions,
       metadata: {
         generator: 'codbsharepoint',

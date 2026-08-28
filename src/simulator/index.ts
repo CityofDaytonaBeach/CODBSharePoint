@@ -115,7 +115,8 @@ export class SharePointSimulator {
   }
 
   private generateHTML(): string {
-    const { siteTitle, user, lists } = this.config;
+    const { siteTitle, lists } = this.config;
+    const user = this.config.user || this.getDefaultUser();
 
     return `
       <div class="codb-simulator" style="font-family: 'Segoe UI', sans-serif; max-width: 1200px; margin: 0 auto;">
@@ -218,7 +219,7 @@ export class SharePointSimulator {
   }
 
   // Mount a web part component
-  mountWebPart(component: React.ComponentType<unknown>, props: Record<string, unknown> = {}): void {
+  mountWebPart(component: { displayName?: string }, props: Record<string, unknown> = {}): void {
     if (!this.container) return;
 
     const webpartZone = this.container.querySelector('#webpart-zone');

@@ -27,7 +27,7 @@ import type {
   PropertyPaneField,
   BuildTarget
 } from '../types/index.js';
-import { SPFx_COMPATIBILITY } from '../types/index.js';
+import { SPFx_COMPATIBILITY, GRAPH_PERMISSIONS } from '../types/index.js';
 
 export function createIR(config?: Partial<SolutionConfig>): CODBIR {
   const now = new Date().toISOString();

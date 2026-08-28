@@ -10,7 +10,7 @@ const sharedConfig = {
   sourcemap: true,
   minify: !isWatch,
   metafile: true,
-  external: [],
+  external: ['esbuild-wasm'],
   define: {
     'process.env.NODE_ENV': isWatch ? '"development"' : '"production"',
     '__VERSION__': JSON.stringify('1.0.0'),

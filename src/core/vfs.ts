@@ -4,6 +4,9 @@
 // ============================================================================
 
 import type { VFSFile, VFS } from '../types/index.js';
+import { zipSync, strToU8 } from 'fflate';
+
+export type { VFS };
 
 // Simple glob-to-regex converter
 function globToRegex(pattern: string): RegExp {
@@ -65,8 +68,7 @@ export function createVFS(): VFS {
     return new TextDecoder().decode(file.content);
   }
 
-  async function toZip(): Promise<Uint8Array> {
-    const { zipSync, strToU8 } = await import('fflate');
+  function toZip(): Uint8Array {
     const zipData: Record<string, Uint8Array> = {};
 
     for (const file of files) {

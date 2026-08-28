@@ -5,6 +5,9 @@
 
 import type { CODBIR, ComponentDefinition, Framework, SPFxVersion, BuildOptions, VFSFile } from '../types/index.js';
 import { createVFS, type VFS } from '../core/vfs.js';
+import { generateSharePointArtifacts } from '../provisioning/generator.js';
+import { transformContent } from '../bundler/esbuild-runtime.js';
+import { generateLocalizationFiles } from '../localization/generator.js';
 
 export interface CompileOptions {
   framework: Framework;
@@ -83,6 +86,12 @@ export class SPFxCompiler {
       // Generate manifest files
       const manifestFiles = this.generateManifestFiles(ir);
       compiledFiles.push(...manifestFiles);
+
+      // Generate SharePoint artifacts (themes, formatting, provisioning, pages)
+      compiledFiles.push(...generateSharePointArtifacts(ir));
+
+      // Generate localization files (.resx + localized strings)
+      compiledFiles.push(...generateLocalizationFiles(ir));
 
       // Add to VFS
       for (const file of compiledFiles) {
@@ -166,16 +175,27 @@ export class SPFxCompiler {
     const warnings: string[] = [];
     const files: VFSFile[] = [];
 
-    // In a real implementation, this would use esbuild-wasm or TypeScript WASM
-    // For now, we do a simplified transform
+    // Try esbuild-wasm (offline real transform) first; fall back to simplified
     try {
-      let compiled = content;
+      let compiled: string;
 
-      // Remove type annotations (simplified)
-      compiled = this.removeTypeAnnotations(compiled);
+      const transformResult = await transformContent(content, {
+        loader: path.endsWith('.tsx') ? 'tsx' : 'ts',
+        minify: this.options.minify,
+        sourceMap: false,
+        target: 'es2022'
+      });
 
-      // Transform imports
-      compiled = this.transformImports(compiled, path);
+      if (transformResult.ok && transformResult.code) {
+        compiled = transformResult.code;
+      } else {
+        if (transformResult.error && !/not available/.test(transformResult.error)) {
+          warnings.push(`esbuild transform failed for ${path}: ${transformResult.error}`);
+        }
+        // Simplified fallback
+        compiled = this.removeTypeAnnotations(content);
+        compiled = this.transformImports(compiled, path);
+      }
 
       // Output compiled JS
       const outputPath = path

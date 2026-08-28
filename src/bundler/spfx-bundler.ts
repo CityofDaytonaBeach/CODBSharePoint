@@ -4,6 +4,7 @@
 
 import type { CODBIR, VFSFile, SPFxVersion } from '../types/index.js';
 import { createVFS, type VFS } from '../core/vfs.js';
+import { bundleFromVFS } from './esbuild-runtime.js';
 
 export interface BundleOptions {
   minify?: boolean;
@@ -59,10 +60,11 @@ export class SPFxBundle {
       const componentFiles = compiledFiles.filter(f => f.path.includes(component.name));
 
       if (componentFiles.length > 0) {
-        // Create bundle for this component
-        const bundleContent = this.createBundle(componentFiles, externals);
+        const name = component.name;
+        const candidates = this.findEntryCandidates(componentFiles, name);
+        const bundleContent = await this.bundleEntry(componentFiles, candidates, externals, options);
         const chunk: BundleChunk = {
-          name: `${component.name}.bundle.js`,
+          name: `${name}.bundle.js`,
           content: bundleContent,
           size: bundleContent.length,
           isEntry: true,
@@ -80,9 +82,11 @@ export class SPFxBundle {
       const extFiles = compiledFiles.filter(f => f.path.includes(ext.name));
 
       if (extFiles.length > 0) {
-        const bundleContent = this.createBundle(extFiles, externals);
+        const name = ext.name;
+        const candidates = this.findEntryCandidates(extFiles, name);
+        const bundleContent = await this.bundleEntry(extFiles, candidates, externals, options);
         const chunk: BundleChunk = {
-          name: `${ext.name}.bundle.js`,
+          name: `${name}.bundle.js`,
           content: bundleContent,
           size: bundleContent.length,
           isEntry: true,
@@ -117,6 +121,55 @@ export class SPFxBundle {
       totalSize,
       files
     };
+  }
+
+  private findEntryCandidates(files: VFSFile[], name: string): string[] {
+    const candidates = files
+      .map(f => f.path)
+      .filter(p => p.endsWith('.js'))
+      .filter(p => !p.endsWith('.map'))
+      .sort((a, b) => this.entryScore(a, name) - this.entryScore(b, name));
+    return candidates;
+  }
+
+  private entryScore(path: string, name: string): number {
+    let score = 1000;
+    if (/WebPart|ApplicationCustomizer|FieldCustomizer|CommandSet/.test(path)) score -= 300;
+    if (path.includes(name)) score -= 100;
+    if (path.includes(`${name}WebPart`)) score -= 100;
+    return score;
+  }
+
+  private async bundleEntry(
+    files: VFSFile[],
+    candidates: string[],
+    externals: string[],
+    options: BundleOptions
+  ): Promise<string> {
+    const entry = candidates[0];
+    if (!entry) {
+      return this.createBundle(files, externals);
+    }
+
+    const fileMap = files.map(f => ({
+      path: f.path,
+      content: typeof f.content === 'string' ? f.content : new TextDecoder().decode(f.content)
+    }));
+
+    const result = await bundleFromVFS(entry, fileMap, {
+      bundle: true,
+      format: 'iife',
+      minify: options.minify ?? false,
+      sourceMap: options.sourceMaps ?? false,
+      external: externals,
+      target: 'es2022',
+      platform: 'browser'
+    });
+
+    if (result.ok && result.code) {
+      return result.code;
+    }
+    return this.createBundle(files, externals);
   }
 
   private createBundle(files: VFSFile[], externals: string[]): string {

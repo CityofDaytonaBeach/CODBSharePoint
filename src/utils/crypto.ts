@@ -26,7 +26,7 @@ export async function hashContent(content: string | Uint8Array): Promise<string>
   const data = typeof content === 'string' ? new TextEncoder().encode(content) : content;
 
   if (typeof crypto !== 'undefined' && crypto.subtle) {
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data as BufferSource);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
