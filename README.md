@@ -111,9 +111,14 @@ const result = await tools.compile(ir);
 ```html
 <!-- CDN -->
 <script type="module">
-  import { CODBSharePoint } from 'https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/codbsharepoint@v1.0.0/dist/codbsharepoint.mjs';
+  import { CODBSharePoint } from 'https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/CODBSharePoint@latest/dist/codbsharepoint.mjs';
+
+  const sdk = new CODBSharePoint();
+  document.body.textContent = `${sdk.getInfo().name} ${sdk.version} loaded`;
 </script>
 ```
+
+Use `@latest` until a GitHub release/tag exists. After publishing a tag, pin the URL to that tag, for example `@v1.0.0`.
 
 ```bash
 # npm

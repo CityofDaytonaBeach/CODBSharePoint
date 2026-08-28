@@ -671,7 +671,7 @@ Repository:
 codbsharepoint
 
 CDN:
-https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/codbsharepoint@v1.0.0/dist/codbsharepoint.js
+https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/CODBSharePoint@latest/dist/codbsharepoint.mjs
 
 Global:
 CODBSharePoint

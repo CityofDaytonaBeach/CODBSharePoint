@@ -45,7 +45,7 @@
     "type": "git",
     "url": "https://github.com/CityofDaytonaBeach/codbsharepoint.git"
   },
-  "cdn": "https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/codbsharepoint@latest/dist/codbsharepoint.js",
+  "cdn": "https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/CODBSharePoint@latest/dist/codbsharepoint.mjs",
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
