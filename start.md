@@ -677,7 +677,7 @@ Global:
 CODBSharePoint
 
 ES Module:
-import { CODBSharePoint } from ".../codbsharepoint.js";
+import { CODBSharePoint } from ".../codbsharepoint.mjs";
 
 Then the API reads naturally:
 
