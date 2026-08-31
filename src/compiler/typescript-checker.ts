@@ -72,20 +72,33 @@ declare module '*.module.css' { const styles: Record<string, string>; export def
 declare module '*.module.scss' { const styles: Record<string, string>; export default styles; }
 `;
 
-export async function checkTypeScriptFiles(files: Map<string, string>): Promise<CompileError[]> {
+export interface TypeScriptCheckResult {
+  /** Real semantic type diagnostics (only when the compiler was available). */
+  errors: CompileError[];
+  /** True when the TypeScript compiler could not be loaded (browser without TS). */
+  unavailable: boolean;
+  /** Human-readable reason for unavailability, if any. */
+  unavailableReason?: string;
+}
+
+export async function checkTypeScriptFiles(files: Map<string, string>): Promise<TypeScriptCheckResult> {
   const ts = await resolveTypeScript();
   if (!ts) {
-    return [{
-      message: availabilityError ? `TypeScript compiler is not available: ${availabilityError}` : 'TypeScript compiler is not available',
-      severity: 'error'
-    }];
+    // TypeScript is optional for transpilation (esbuild handles it). Report
+    // unavailability separately so callers can downgrade to a warning instead
+    // of aborting the whole build in browser-only environments.
+    return {
+      errors: [],
+      unavailable: true,
+      unavailableReason: availabilityError || 'TypeScript compiler is not available'
+    };
   }
 
   const virtualFiles = new Map(files);
   virtualFiles.set('/codb/ambient.d.ts', ambientTypes);
 
   const rootNames = Array.from(virtualFiles.keys()).filter(path => /\.tsx?$|\.d\.ts$/.test(path));
-  if (rootNames.length === 0) return [];
+  if (rootNames.length === 0) return { errors: [], unavailable: false };
 
   const options: import('typescript').CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
@@ -130,19 +143,22 @@ export async function checkTypeScriptFiles(files: Map<string, string>): Promise<
   const program = ts.createProgram(rootNames, options, host);
   const diagnostics = ts.getPreEmitDiagnostics(program).filter(diagnostic => !isSuppressedDiagnostic(diagnostic.code));
 
-  return diagnostics.map(diagnostic => {
-    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-    const file = diagnostic.file;
-    const position = file && diagnostic.start !== undefined ? file.getLineAndCharacterOfPosition(diagnostic.start) : undefined;
+  return {
+    errors: diagnostics.map(diagnostic => {
+      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+      const file = diagnostic.file;
+      const position = file && diagnostic.start !== undefined ? file.getLineAndCharacterOfPosition(diagnostic.start) : undefined;
 
-    return {
-      message,
-      file: file?.fileName === '/codb/ambient.d.ts' ? undefined : file?.fileName,
-      line: position ? position.line + 1 : undefined,
-      column: position ? position.character + 1 : undefined,
-      severity: 'error'
-    };
-  });
+      return {
+        message,
+        file: file?.fileName === '/codb/ambient.d.ts' ? undefined : file?.fileName,
+        line: position ? position.line + 1 : undefined,
+        column: position ? position.character + 1 : undefined,
+        severity: 'error'
+      };
+    }),
+    unavailable: false
+  };
 }
 
 function normalizePath(path: string): string {

@@ -100,6 +100,13 @@
       const sdk = new CODBSharePoint();
       const startTime = performance.now();
 
+      // Initialize the WASM compiler (fetches esbuild.wasm from CDN) so the
+      // build pipeline can transpile in-browser. This is browser-only setup.
+      log('Step 0: Browser WASM Initialization', 'log-info');
+      const init = await sdk.browserAPI.init();
+      log(`  esbuild-wasm: ${init.success ? 'initialized' : 'failed'}`, init.success ? 'log-ok' : 'log-err');
+      init.diagnostics.forEach(d => log(`  [init] ${d}`, init.success ? 'log-info' : 'log-warn'));
+
       log('=== CODBSharePoint Browser Integration Test ===', 'log-info');
       log('');
 
@@ -120,7 +127,7 @@
       const context = JSON.parse(ai.exportPromptContext());
       log(`  Capabilities: ${Object.keys(context.capabilities).length}`, 'log-ok');
       log(`  Rules: ${context.rules.length}`, 'log-ok');
-      log(`  Profiles: ${context.profiles.length}`, 'log-ok');
+      log(`  Profile: ${context.profile?.id || context.profile?.spfxVersion || 'spfx-1.22'}`, 'log-ok');
       log(`  Knowledge embedded: ${Object.keys(context.knowledge).length} categories`, 'log-ok');
       log('');
 
@@ -136,7 +143,7 @@
             "import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';",
             "export interface IBrowserTestProps { title: string; }",
             "export default class BrowserTestWebPart extends BaseClientSideWebPart<IBrowserTestProps> {",
-            "  public render(): void { this.domElement.innerHTML = '<div>Browser Test</div>'; }",
+            "  public render(): void { this.domElement.textContent = 'Browser Test'; }",
             "}"
           ].join('\n')
         }
@@ -173,6 +180,9 @@
       log(`  Success: ${buildResult.success}`, buildResult.success ? 'log-ok' : 'log-err');
       log(`  Compiled files: ${buildResult.files.length}`, 'log-ok');
       log(`  Errors: ${buildResult.errors.length}`, buildResult.errors.length > 0 ? 'log-err' : 'log-ok');
+      log(`  validation.valid: ${buildResult.validation?.valid}`, 'log-info');
+      log(`  security.passed: ${buildResult.security?.passed}`, 'log-info');
+      log(`  compatibility.compatible: ${buildResult.compatibility?.compatible}`, 'log-info');
       log(`  Duration: ${buildResult.duration}ms`, 'log-ok');
       log('');
 

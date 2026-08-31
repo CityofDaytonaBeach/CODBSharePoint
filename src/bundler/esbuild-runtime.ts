@@ -57,21 +57,48 @@ let availabilityError: string | undefined;
 // Injected by exports.initializeEsbuild() for bundlers/CDN that use WasmURL.
 let wasmURLOverride: string | undefined;
 
+// CDN ESM fallback so pure browser/ESM runs can resolve esbuild-wasm without a
+// bundler or node_modules (the bare `import('esbuild-wasm')` would 404).
+const ESBUILD_WASM_VERSION = '0.28.2';
+const CDN_BASE = 'https://cdn.jsdelivr.net/npm';
+let esbuildCDNURL: string | undefined;
+
 async function resolveModule(): Promise<EsbuildModule | undefined> {
   if (cachedModule) return cachedModule;
-  if (availabilityError !== undefined) return undefined;
 
-  try {
-    const mod = (await import(/* webpackIgnore: true */ 'esbuild-wasm')) as EsbuildModule;
-    // In browser builds via bundlers the package resolves; in pure CDN ESM the
-    // bare specifier cannot resolve — we catch that above and fall back.
-    cachedModule = mod;
-    return mod;
-  } catch (err) {
-    availabilityError = err instanceof Error ? err.message : String(err);
-    cachedModule = undefined;
-    return undefined;
+  // 1. Try the bundled/native resolution (works when a bundler inlined it or
+  //    when importing the npm package in a Node/test environment).
+  if (availabilityError === undefined) {
+    try {
+      const mod = (await import(/* webpackIgnore: true */ 'esbuild-wasm')) as EsbuildModule;
+      if (mod && typeof mod.transform === 'function') {
+        cachedModule = mod;
+        return mod;
+      }
+    } catch {
+      // fall through to CDN
+    }
   }
+
+  // 2. Browser/ESM fallback: import the esbuild-wasm ESM build from a CDN.
+  if (typeof globalThis !== 'undefined' && !globalThis.process) {
+    esbuildCDNURL = esbuildCDNURL || `${CDN_BASE}/esbuild-wasm@${ESBUILD_WASM_VERSION}/lib/browser.js`;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = (await import(/* webpackIgnore: true */ /* @vite-ignore */ esbuildCDNURL)) as unknown as EsbuildModule;
+      if (mod && typeof mod.transform === 'function') {
+        cachedModule = mod;
+        return mod;
+      }
+      availabilityError = 'esbuild-wasm CDN module has no transform function';
+    } catch (err) {
+      availabilityError = err instanceof Error ? err.message : String(err);
+      return undefined;
+    }
+  }
+
+  availabilityError = availabilityError || 'esbuild-wasm is not available in this environment';
+  return undefined;
 }
 
 async function ensureInit(mod: EsbuildModule): Promise<void> {

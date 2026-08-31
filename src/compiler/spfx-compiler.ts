@@ -70,12 +70,16 @@ export class SPFxCompiler {
         sourceFiles = this.generateScaffold(ir);
       }
 
-      const typeErrors = await checkTypeScriptFiles(sourceFiles);
-      if (typeErrors.length > 0) {
+      const typeCheck = await checkTypeScriptFiles(sourceFiles);
+      if (typeCheck.unavailable) {
+        // Browser-only (or TS-less) environments: esbuild handles transpilation,
+        // so semantic type-checking is an optional enhancement, not a gate.
+        warnings.push(`Semantic type-checking skipped: ${typeCheck.unavailableReason || 'TypeScript unavailable'}`);
+      } else if (typeCheck.errors.length > 0) {
         return {
           success: false,
           files: [],
-          errors: typeErrors,
+          errors: typeCheck.errors,
           warnings,
           entryPoint: ir.components[0]?.entry || '',
           bundleSize: 0

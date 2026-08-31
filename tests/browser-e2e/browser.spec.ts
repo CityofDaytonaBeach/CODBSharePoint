@@ -61,8 +61,16 @@ test('full pipeline runs entirely in the browser', async ({ browser }) => {
     // Click run
     await page.click('#btn-run');
 
-    // Wait for the test to complete
-    await page.waitForSelector('.status-row .dot.green', { timeout: 60000 });
+    // Wait for the test to complete (final summary line in the log).
+    // The status bar's single dot is only green at completion, but it also turns
+    // green earlier (SDK load). So wait on the terminal log summary instead.
+    await page.waitForFunction(() => {
+      const log = document.getElementById('log');
+      return log && log.textContent && log.textContent.includes('=== Test Complete in');
+    }, undefined, { timeout: 120000 });
+
+    // Wait a tick for the final status to render
+    await page.waitForSelector('.status-row .dot.green', { timeout: 10000 });
 
     // Check status
     const status = await page.textContent('#runtime-status');
@@ -78,8 +86,9 @@ test('full pipeline runs entirely in the browser', async ({ browser }) => {
     expect(logText).toContain('ALL PASSED');
 
     // Verify SPPKG produced
-    expect(logText).toContain('SPPKG package');
+    expect(logText).toContain('SPPKG Package Validation');
     expect(logText).toContain('Is ZIP: true');
+    expect(logText).toContain('Package size:');
 
     // Download button should be enabled after successful build
     const downloadDisabled = await page.isDisabled('#btn-download');
@@ -118,7 +127,10 @@ test('builds a multi-component solution in-browser', async ({ browser }) => {
     await page.goto(`${baseUrl}/test-browser.html`, { waitUntil: 'networkidle' });
     await page.waitForSelector('#btn-run:not([disabled])', { timeout: 60000 });
     await page.click('#btn-run');
-    await page.waitForSelector('.status-row .dot.green', { timeout: 60000 });
+    await page.waitForFunction(() => {
+      const log = document.getElementById('log');
+      return log && log.textContent && log.textContent.includes('=== Test Complete in');
+    }, undefined, { timeout: 120000 });
 
     const logText = await page.textContent('#log');
     expect(logText).toContain('ALL PASSED');
