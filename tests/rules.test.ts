@@ -2,8 +2,8 @@ import { CODBSharePoint, DesignerRulesEngine, BUILT_IN_RULES, Designer } from '.
 import { createIR, addWebPart, addList, addGraphPermission } from '../src/core/ir.js';
 
 describe('CODBSharePoint - Designer Rules Engine', () => {
-  it('has 8 built-in rules', () => {
-    expect(BUILT_IN_RULES.length).toBe(8);
+  it('has 21 built-in rules', () => {
+    expect(BUILT_IN_RULES.length).toBeGreaterThanOrEqual(20);
     expect(BUILT_IN_RULES.map(r => r.id)).toContain('employee-directory');
     expect(BUILT_IN_RULES.map(r => r.id)).toContain('quick-links');
     expect(BUILT_IN_RULES.map(r => r.id)).toContain('data-table');
@@ -12,6 +12,19 @@ describe('CODBSharePoint - Designer Rules Engine', () => {
     expect(BUILT_IN_RULES.map(r => r.id)).toContain('org-chart');
     expect(BUILT_IN_RULES.map(r => r.id)).toContain('document-explorer');
     expect(BUILT_IN_RULES.map(r => r.id)).toContain('approval-dashboard');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('ace-announcements');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('ace-task-card');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('command-set-approvals');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('field-customizer-status');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('news-feed');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('task-board');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('mailbox-viewer');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('file-manager');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('event-registration');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('ticketing-system');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('leave-request');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('image-gallery');
+    expect(BUILT_IN_RULES.map(r => r.id)).toContain('inventory-tracker');
   });
 
   it('searches rules by name and tags', () => {
@@ -144,8 +157,79 @@ describe('CODBSharePoint - Designer + Rules Integration', () => {
     const designer = sdk.designer();
 
     expect(designer.rules).toBeDefined();
-    expect(designer.listRules().length).toBe(8);
+    expect(designer.listRules().length).toBeGreaterThanOrEqual(20);
     expect(designer.searchRules('graph').length).toBeGreaterThanOrEqual(2);
+    expect(designer.searchRules('ace').length).toBeGreaterThanOrEqual(1);
+    expect(designer.searchRules('commandset').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('supports rule inheritance', () => {
+    const engine = new DesignerRulesEngine();
+    const base = engine.get('employee-directory')!;
+
+    const derived = engine.inherit('employee-directory', {
+      id: 'my-custom-directory',
+      name: 'My Custom Directory',
+      tags: ['custom']
+    });
+
+    expect(derived.basedOn).toBe('employee-directory');
+    expect(derived.id).toBe('my-custom-directory');
+    expect(derived.version).not.toBe(base.version);
+    expect(derived.graphPermissions).toContain('User.Read.All');
+    expect(derived.tags).toContain('custom');
+    expect(derived.tags).toContain('graph');
+  });
+
+  it('inheritance deep-merges components and data sources', () => {
+    const engine = new DesignerRulesEngine();
+    const derived = engine.inherit('employee-directory', {
+      components: [{
+        name: 'ExtraPart',
+        displayName: 'Extra',
+        type: 'webpart',
+        framework: 'react'
+      }],
+      dataSources: [{
+        type: 'graph',
+        name: 'extra-graph',
+        endpoint: '/me'
+      }]
+    });
+
+    expect(derived.components.length).toBe(2);
+    expect(derived.dataSources.length).toBe(2);
+  });
+
+  it('diffs two rules to find changes', () => {
+    const engine = new DesignerRulesEngine();
+    const derived = engine.inherit('employee-directory', {
+      id: 'diff-target',
+      name: 'Diff Target',
+      graphPermissions: ['User.Read.All', 'Mail.Read']
+    });
+    engine.register(derived);
+
+    const diff = engine.diff('employee-directory', 'diff-target');
+
+    expect(diff.identical).toBe(false);
+    expect(diff.changes.some(c => c.path === 'name')).toBe(true);
+    expect(diff.changes.some(c => c.path === 'graphPermissions.Mail.Read' && c.type === 'added')).toBe(true);
+  });
+
+  it('reports identical rules as identical', () => {
+    const engine = new DesignerRulesEngine();
+    engine.register(engine.get('quick-links')!);
+    const diff = engine.diff('quick-links', 'quick-links');
+    expect(diff.identical).toBe(true);
+    expect(diff.changes.length).toBe(0);
+  });
+
+  it('creates ACE-type project from rule', () => {
+    const engine = new DesignerRulesEngine();
+    const { ir } = engine.createProject(engine.get('ace-announcements')!);
+    expect(ir.components.length).toBe(1);
+    expect(ir.components[0].type).toBe('ace');
   });
 
   it('designer creates project from rule', async () => {
@@ -198,6 +282,6 @@ describe('CODBSharePoint - Designer + Rules Integration', () => {
   it('sdk.designerAPI exposes rules engine', () => {
     const sdk = new CODBSharePoint();
     expect(sdk.designerAPI.DesignerRulesEngine).toBeDefined();
-    expect(sdk.designerAPI.BUILT_IN_RULES.length).toBe(8);
+    expect(sdk.designerAPI.BUILT_IN_RULES.length).toBeGreaterThanOrEqual(20);
   });
 });

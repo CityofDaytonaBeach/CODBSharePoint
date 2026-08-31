@@ -141,6 +141,9 @@ import { findKnowledgeEntries, getKnowledgeCatalog, summarizeKnowledge } from '.
 // Browser runtime
 import { initBrowser, initBrowserCustom, downloadFile, downloadSPPKG, browserBuildProof } from './browser/index.js';
 
+// Deploy
+import { uploadSPPKG, DEFAULT_LIBRARY } from './deploy/index.js';
+
 // Simulator
 import { SharePointSimulator } from './simulator/index.js';
 
@@ -738,6 +741,13 @@ export class CODBSharePoint {
     };
   }
 
+  get deployAPI() {
+    return {
+      upload: uploadSPPKG,
+      DEFAULT_LIBRARY
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Lower-level APIs
   // ---------------------------------------------------------------------------
@@ -1062,7 +1072,7 @@ export { generateSPPKG, validateSPPKGStructure, validateSPPKGPackage } from './o
 export { Designer } from './designer/index.js';
 export type { ProjectManifest, ProjectSettings, DesignerBuilder } from './designer/index.js';
 export { DesignerRulesEngine, BUILT_IN_RULES } from './designer/rules.js';
-export type { DesignerRule, RuleField, RulePropertyPane, RuleDataSource, RuleValidation, RuleFormatting } from './designer/rules.js';
+export type { DesignerRule, RuleField, RulePropertyPane, RuleDataSource, RuleValidation, RuleFormatting, RuleDiff, RuleDiffChange } from './designer/rules.js';
 export { TemplateRegistry } from './templates/index.js';
 export type { ComponentTemplate, TemplateKind, TemplateRenderContext } from './templates/index.js';
 export { createStorage, MemoryStorage, LocalStorageAdapter, IndexedDBStorage } from './storage/index.js';
@@ -1079,3 +1089,7 @@ export {
   browserBuildProof
 } from './browser/index.js';
 export type { BrowserInitResult, BrowserBuildProof, DownloadOptions } from './browser/index.js';
+
+// Deployment
+export { uploadSPPKG, DEFAULT_LIBRARY } from './deploy/index.js';
+export type { UploadSPPKGOptions, UploadSPPKGResult, AppCatalogType, SPHttpClientLike } from './deploy/index.js';

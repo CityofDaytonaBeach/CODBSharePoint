@@ -178,6 +178,22 @@ export interface BundleVFSResult {
   ok: boolean;
   code?: string;
   error?: string;
+  /** Structured esbuild diagnostics (file, line, column, text) — preserved so callers can surface precise errors. */
+  warnings?: BundleNote[];
+  errors?: BundleNote[];
+}
+
+export interface BundleNote {
+  pluginName?: string;
+  text: string;
+  location?: {
+    file?: string;
+    line?: number;
+    column?: number;
+    length?: number;
+    lineText?: string;
+  };
+  detail?: string;
 }
 
 export async function bundleFromVFS(
@@ -279,25 +295,95 @@ export default {\n${mappings}\n};`;
       }
     };
 
-    const result = await mod.build({
-      entryPoints: [entryPath],
-      bundle: options.bundle ?? true,
-      format: options.format || 'iife',
-      minify: options.minify ?? false,
-      sourcemap: options.sourceMap ?? false,
-      target: options.target || 'es2022',
-      platform: options.platform || 'browser',
-      write: false,
-      plugins: [plugin]
-    });
+    let result;
+    try {
+      result = await mod.build({
+        entryPoints: [entryPath],
+        bundle: options.bundle ?? true,
+        format: options.format || 'iife',
+        minify: options.minify ?? false,
+        sourcemap: options.sourceMap ?? false,
+        target: options.target || 'es2022',
+        platform: options.platform || 'browser',
+        write: false,
+        plugins: [plugin]
+      });
+    } catch (err) {
+      // esbuild throws with structured .errors and .warnings arrays (member / location / text).
+      const buildError = err as { message?: string; errors?: BundleNote[]; warnings?: BundleNote[] };
+      const errors = normalizeStructuredMessages(buildError.errors);
+      const warnings = normalizeStructuredMessages(buildError.warnings);
+      const summary = errors.length > 0
+        ? errors.map(e => formatNote(e)).join(' | ')
+        : (buildError.message || (err instanceof Error ? err.message : String(err)));
+      return { ok: false, error: summary, errors, warnings };
+    }
+
+    // Surface non-fatal structured esbuild errors (e.g. syntax errors that still
+    // produced a partial output, or strict-mode violations) so callers see them.
+    const structuredErrors = normalizeStructuredMessages((result as any)?.errors);
+    const structuredWarnings = normalizeStructuredMessages((result as any)?.warnings);
+
+    if (structuredErrors.length > 0) {
+      return {
+        ok: false,
+        error: structuredErrors.map(e => formatNote(e)).join(' | '),
+        errors: structuredErrors,
+        warnings: structuredWarnings
+      };
+    }
 
     const out = result.outputFiles?.[0];
     if (!out) {
-      return { ok: false, error: 'esbuild produced no output' };
+      return { ok: false, error: 'esbuild produced no output', warnings: structuredWarnings };
     }
     const text = typeof out.text === 'string' ? out.text : new TextDecoder().decode(out.contents);
-    return { ok: true, code: text };
+    return { ok: true, code: text, warnings: structuredWarnings };
   } catch (err) {
+    // Outer guard: never let an unexpected runtime error silently pass as success.
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Structured message normalization
+// ---------------------------------------------------------------------------
+
+function normalizeStructuredMessages(notes?: Array<{
+  text?: string;
+  detail?: string;
+  location?: { file?: string; line?: number; column?: number; length?: number; lineText?: string };
+  pluginName?: string;
+} | string>): BundleNote[] {
+  if (!Array.isArray(notes)) return [];
+  const out: BundleNote[] = [];
+  for (const note of notes) {
+    if (typeof note === 'string') {
+      out.push({ text: note });
+    } else if (note && typeof note.text === 'string') {
+      const n: BundleNote = { text: note.text };
+      if (note.detail) n.detail = note.detail;
+      if (note.pluginName) n.pluginName = note.pluginName;
+      if (note.location) {
+        n.location = {
+          file: note.location.file,
+          line: note.location.line,
+          column: note.location.column,
+          length: note.location.length,
+          lineText: note.location.lineText
+        };
+      }
+      out.push(n);
+    }
+  }
+  return out;
+}
+
+function formatNote(note: BundleNote): string {
+  const loc = note.location;
+  const pos = loc && (loc.file || loc.line != null)
+    ? ` (${loc.file || '<entry>'}${loc.line != null ? `:${loc.line}${loc.column != null ? `:${loc.column}` : ''}` : ''})`
+    : '';
+  const detail = note.detail ? `\n  ${note.detail}` : '';
+  return `[esbuild]${pos} ${note.text}${detail}`;
 }

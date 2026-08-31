@@ -28,6 +28,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:browser": "playwright test tests/browser-e2e",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -48,6 +49,7 @@
   },
   "cdn": "https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/CODBSharePoint@latest/dist/codbsharepoint.mjs",
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
     "esbuild": "^0.21.0",
