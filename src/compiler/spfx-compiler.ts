@@ -9,6 +9,8 @@ import { generateSharePointArtifacts } from '../provisioning/generator.js';
 import { transformContent } from '../bundler/esbuild-runtime.js';
 import { generateLocalizationFiles } from '../localization/generator.js';
 import { checkTypeScriptFiles } from './typescript-checker.js';
+import { generateComponentManifest } from '../manifest/generator.js';
+import { compileSassString } from './sass-compiler.js';
 
 export interface CompileOptions {
   framework: Framework;
@@ -91,10 +93,6 @@ export class SPFxCompiler {
         compiledFiles.push(...result.files);
         warnings.push(...result.warnings);
       }
-
-      // Generate bundle entry points
-      const entryFiles = this.generateEntryPoints(ir);
-      compiledFiles.push(...entryFiles);
 
       // Generate manifest files
       const manifestFiles = this.generateManifestFiles(ir);
@@ -200,7 +198,7 @@ export class SPFxCompiler {
         target: 'es2022'
       });
 
-      if (!transformResult.ok || !transformResult.code) {
+      if (!transformResult.ok || transformResult.code === undefined) {
         errors.push({
           message: transformResult.error || 'esbuild produced no output',
           file: path,
@@ -247,7 +245,7 @@ export class SPFxCompiler {
         target: 'es2022'
       });
 
-      if (!transformResult.ok || !transformResult.code) {
+      if (!transformResult.ok || transformResult.code === undefined) {
         errors.push({
           message: transformResult.error || 'esbuild produced no output',
           file: path,
@@ -322,12 +320,11 @@ export class SPFxCompiler {
     try {
       let compiled = content;
 
-      // SCSS to CSS (simplified - remove nesting)
       if (path.endsWith('.scss')) {
-        const unsupported = this.findUnsupportedScssFeatures(content);
-        if (unsupported.length > 0) {
+        const sassResult = await compileSassString(path, content);
+        if (!sassResult.success || sassResult.css === undefined) {
           errors.push({
-            message: `Unsupported SCSS syntax: ${unsupported.join(', ')}. A browser Sass compiler is required for this file.`,
+            message: sassResult.error || 'Sass compilation failed',
             file: path,
             severity: 'error'
           });
@@ -342,7 +339,7 @@ export class SPFxCompiler {
           };
         }
 
-        compiled = this.compileSCSS(content);
+        compiled = sassResult.css;
       }
 
       const outputPath = path
@@ -715,43 +712,13 @@ export default class ${ext.name}CommandSet extends BaseListViewCommandSet<IListV
 `;
   }
 
-  // Generate entry points
-  private generateEntryPoints(ir: CODBIR): VFSFile[] {
-    const files: VFSFile[] = [];
-
-    files.push({
-      path: 'lib/index.js',
-      content: `'use strict';
-// Auto-generated entry point for ${ir.solution.name}
-module.exports = require('./webparts/${ir.components[0]?.name || 'index'}/${ir.components[0]?.name || 'index'}WebPart');
-`,
-      encoding: 'utf-8'
-    });
-
-    return files;
-  }
-
   // Generate manifest files
   private generateManifestFiles(ir: CODBIR): VFSFile[] {
     const files: VFSFile[] = [];
 
     for (const component of ir.components) {
       if (component.type === 'webpart') {
-        const manifest = {
-          id: `{${component.id}}`,
-          alias: `${ir.solution.namespace}-${component.name}WebPart`,
-          componentType: 'WebPart',
-          version: component.version,
-          manifestVersion: 2,
-          preconfiguredEntries: component.preconfiguredEntries.map(entry => ({
-            groupId: component.group.id,
-            group: { default: component.group.name },
-            title: { default: entry.defaultTitle },
-            description: { default: entry.description },
-            officeFabricIconFontName: entry.officeFabricIconFontName,
-            properties: entry.properties
-          }))
-        };
+        const manifest = generateComponentManifest(component, ir.solution.namespace);
 
         files.push({
           path: `sharepoint/assets/${component.name}.manifest.json`,
@@ -791,63 +758,6 @@ module.exports = require('./webparts/${ir.components[0]?.name || 'index'}/${ir.c
       names: [],
       mappings: 'AAAA'
     });
-  }
-
-  // SCSS compilation for the generated Phase 1 scaffold. Full Sass syntax still
-  // needs a browser Sass compiler before claiming complete SCSS support.
-  private compileSCSS(content: string): string {
-    const source = content.replace(/@import\s+['"][^'"]+['"]\s*;?/g, '');
-    const output: string[] = [];
-    const stack: string[] = [];
-    let declarations: string[] = [];
-
-    const flush = () => {
-      if (stack.length > 0 && declarations.length > 0) {
-        output.push(`${stack.join(' ')} {`);
-        for (const declaration of declarations) {
-          output.push(`  ${declaration}`);
-        }
-        output.push('}');
-        declarations = [];
-      }
-    };
-
-    for (const rawLine of source.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line) continue;
-
-      if (line.endsWith('{')) {
-        flush();
-        stack.push(line.slice(0, -1).trim());
-      } else if (line === '}') {
-        flush();
-        stack.pop();
-      } else {
-        declarations.push(line);
-      }
-    }
-
-    flush();
-    return `${output.join('\n')}\n`;
-  }
-
-  private findUnsupportedScssFeatures(content: string): string[] {
-    const unsupported: string[] = [];
-    const checks: Array<[RegExp, string]> = [
-      [/\$[a-zA-Z_][\w-]*\s*:/, 'variables'],
-      [/@mixin\b/, 'mixins'],
-      [/@include\b/, 'includes'],
-      [/@use\b/, 'use rules'],
-      [/@forward\b/, 'forward rules'],
-      [/&[.:#\[]/, 'parent selectors'],
-      [/@if\b|@for\b|@each\b|@while\b/, 'control flow']
-    ];
-
-    for (const [pattern, label] of checks) {
-      if (pattern.test(content)) unsupported.push(label);
-    }
-
-    return unsupported;
   }
 
   getVFS(): VFS {

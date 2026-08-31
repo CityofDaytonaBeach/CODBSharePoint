@@ -5,6 +5,7 @@
 
 import type { CODBIR, VFSFile, VFS, ComponentDefinition } from '../types/index.js';
 import { createVFS } from '../core/vfs.js';
+import { unzipSync, strFromU8 } from 'fflate';
 import {
   generatePackageSolution,
   generateComponentManifest,
@@ -44,61 +45,63 @@ interface OPCRelationship {
 // ---------------------------------------------------------------------------
 
 export function generateSPPKG(ir: CODBIR, bundleFiles: Map<string, string | Uint8Array>): Uint8Array {
-  const vfs = createVFS();
+  const parts = new Map<string, string | Uint8Array>();
   const solutionName = ir.solution.name;
-
-  // 1. Root [Content_Types].xml
-  const contentTypes = generateContentTypesXml(bundleFiles);
-  vfs.addFile('[Content_Types].xml', contentTypes);
 
   // 2. Root .rels
   const rootRels = generateRootRels(solutionName);
-  vfs.addFile('_rels/.rels', rootRels);
+  parts.set('_rels/.rels', rootRels);
 
   // 2a. OPC package properties referenced by root relationships
-  vfs.addFile('docProps/core.xml', generateCorePropertiesXml(ir));
-  vfs.addFile('docProps/app.xml', generateAppPropertiesXml(ir));
+  parts.set('docProps/core.xml', generateCorePropertiesXml(ir));
+  parts.set('docProps/app.xml', generateAppPropertiesXml(ir));
 
   // 3. Solution folder
   const solutionFolder = `${solutionName}/`;
 
   // 4. package-solution.json
   const packageSolution = generatePackageSolution(ir);
-  vfs.addFile(`${solutionFolder}package-solution.json`, JSON.stringify(packageSolution, null, 2));
+  parts.set(`${solutionFolder}package-solution.json`, JSON.stringify(packageSolution, null, 2));
 
   // 5. package.rels (relationships within the solution)
   const packageRels = generatePackageRels(ir, bundleFiles);
-  vfs.addFile(`${solutionFolder}_rels/.rels`, packageRels);
+  parts.set(`${solutionFolder}_rels/.rels`, packageRels);
 
   // 6. Client-side manifests
   for (const component of ir.components) {
     if (component.type === 'webpart') {
-      const manifest = generateComponentManifest(component, ir.solution.namespace);
-      vfs.addFile(`${solutionFolder}${component.name}.manifest.json`, JSON.stringify(manifest, null, 2));
+      const manifest = generateComponentManifest(component, ir.solution.namespace, ir.metadata.spfxVersion);
+      parts.set(`${solutionFolder}${component.name}.manifest.json`, JSON.stringify(manifest, null, 2));
     }
   }
 
   for (const ext of ir.extensions) {
-    const manifest = generateExtensionManifest(ext, ir.solution.namespace);
-    vfs.addFile(`${solutionFolder}${ext.name}.manifest.json`, JSON.stringify(manifest, null, 2));
+    const manifest = generateExtensionManifest(ext, ir.solution.namespace, ir.metadata.spfxVersion);
+    parts.set(`${solutionFolder}${ext.name}.manifest.json`, JSON.stringify(manifest, null, 2));
   }
 
   // 7. Bundle files
   for (const [path, content] of bundleFiles) {
     const fullPath = `${solutionFolder}${path}`;
-    vfs.addFile(fullPath, content);
+    parts.set(fullPath, content);
   }
 
   // 8. Feature XML
   const featureXml = generateFeatureXml(ir);
-  vfs.addFile(`${solutionFolder}Feature.xml`, featureXml);
+  parts.set(`${solutionFolder}Feature.xml`, featureXml);
 
   // 9. Elements.xml
   const elementsXml = generateElementsXml(ir);
-  vfs.addFile(`${solutionFolder}Elements.xml`, elementsXml);
+  parts.set(`${solutionFolder}Elements.xml`, elementsXml);
 
   // 10. Additional metadata
-  vfs.addFile(`${solutionFolder}_version.txt`, ir.solution.version);
+  parts.set(`${solutionFolder}_version.txt`, ir.solution.version);
+
+  const vfs = createVFS();
+  vfs.addFile('[Content_Types].xml', generateContentTypesXml(Array.from(parts.keys())));
+  for (const [path, content] of parts) {
+    vfs.addFile(path, content, content instanceof Uint8Array ? 'binary' : 'utf-8');
+  }
 
   // Convert to ZIP
   return vfs.toZip();
@@ -108,7 +111,7 @@ export function generateSPPKG(ir: CODBIR, bundleFiles: Map<string, string | Uint
 // Content Types XML
 // ---------------------------------------------------------------------------
 
-function generateContentTypesXml(bundleFiles: Map<string, string | Uint8Array>): string {
+function generateContentTypesXml(paths: Iterable<string>): string {
   const extensions = new Map<string, string>();
 
   // Default content types
@@ -118,8 +121,8 @@ function generateContentTypesXml(bundleFiles: Map<string, string | Uint8Array>):
   extensions.set('js', OPC_CONTENT_TYPES.js);
   extensions.set('css', OPC_CONTENT_TYPES.css);
 
-  // Detect from bundle files
-  for (const [path] of bundleFiles) {
+  // Detect from actual package parts
+  for (const path of paths) {
     const ext = path.split('.').pop()?.toLowerCase();
     if (ext && !extensions.has(ext)) {
       extensions.set(ext, OPC_CONTENT_TYPES[ext as keyof typeof OPC_CONTENT_TYPES] || OPC_CONTENT_TYPES.default);
@@ -326,4 +329,119 @@ export function validateSPPKGStructure(ir: CODBIR, bundleFiles: Map<string, stri
   }
 
   return errors;
+}
+
+export function validateSPPKGPackage(sppkg: Uint8Array): string[] {
+  const errors: string[] = [];
+  let files: Record<string, Uint8Array>;
+
+  try {
+    files = unzipSync(sppkg);
+  } catch (error) {
+    return [`SPPKG is not a valid ZIP package: ${error instanceof Error ? error.message : String(error)}`];
+  }
+
+  const paths = new Set(Object.keys(files));
+  const required = ['[Content_Types].xml', '_rels/.rels', 'docProps/core.xml', 'docProps/app.xml'];
+  for (const path of required) {
+    if (!paths.has(path)) errors.push(`Missing required package part: ${path}`);
+  }
+
+  if (paths.has('[Content_Types].xml')) {
+    const contentTypes = strFromU8(files['[Content_Types].xml']);
+    for (const ext of extensionsInPackage(paths)) {
+      if (!new RegExp(`<Default\\s+Extension=["']${escapeRegex(ext)}["']`).test(contentTypes)) {
+        errors.push(`Missing content type for .${ext} package parts`);
+      }
+    }
+  }
+
+  for (const relsPath of Array.from(paths).filter(path => path.endsWith('.rels'))) {
+    const rels = strFromU8(files[relsPath]);
+    const basePath = relationshipBasePath(relsPath);
+    for (const target of relationshipTargets(rels)) {
+      if (/^[a-z]+:/i.test(target)) continue;
+      const resolved = normalizePackagePath(`${basePath}/${target}`);
+      if (!paths.has(resolved) && !hasPartUnder(paths, resolved)) {
+        errors.push(`Relationship target does not exist: ${relsPath} -> ${target}`);
+      }
+    }
+  }
+
+  const manifestPaths = Array.from(paths).filter(path => path.endsWith('.manifest.json'));
+  if (manifestPaths.length === 0) {
+    errors.push('No client-side component manifests found in SPPKG');
+  }
+
+  for (const manifestPath of manifestPaths) {
+    try {
+      const manifest = JSON.parse(strFromU8(files[manifestPath]));
+      const loaderConfig = manifest.loaderConfig;
+      const entryModuleId = loaderConfig?.entryModuleId;
+      const scriptResources = loaderConfig?.scriptResources;
+      const entryResource = entryModuleId && scriptResources?.[entryModuleId];
+      const entryPath = entryResource?.path;
+
+      if (!entryModuleId || !entryPath) {
+        errors.push(`Manifest ${manifestPath} is missing loaderConfig entry module path`);
+      } else {
+        const manifestDir = manifestPath.slice(0, manifestPath.lastIndexOf('/'));
+        const bundlePath = normalizePackagePath(`${manifestDir}/${entryPath}`);
+        if (!paths.has(bundlePath)) {
+          errors.push(`Manifest ${manifestPath} references missing bundle: ${entryPath}`);
+        }
+      }
+    } catch {
+      errors.push(`Invalid manifest JSON: ${manifestPath}`);
+    }
+  }
+
+  return errors;
+}
+
+function extensionsInPackage(paths: Set<string>): string[] {
+  const extensions = new Set<string>();
+  for (const path of paths) {
+    const file = path.split('/').pop() || '';
+    const index = file.lastIndexOf('.');
+    if (index > 0) extensions.add(file.slice(index + 1).toLowerCase());
+  }
+  return Array.from(extensions).sort();
+}
+
+function relationshipTargets(relsXml: string): string[] {
+  const targets: string[] = [];
+  const pattern = /<Relationship\b[^>]*\sTarget=["']([^"']+)["'][^>]*>/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(relsXml)) !== null) {
+    targets.push(match[1]);
+  }
+  return targets;
+}
+
+function relationshipBasePath(relsPath: string): string {
+  if (relsPath === '_rels/.rels') return '';
+  return relsPath.replace(/_rels\/\.rels$/, '').replace(/\/$/, '');
+}
+
+function normalizePackagePath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join('/');
+}
+
+function hasPartUnder(paths: Set<string>, folder: string): boolean {
+  const prefix = folder.replace(/\/$/, '') + '/';
+  return Array.from(paths).some(path => path.startsWith(prefix));
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

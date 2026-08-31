@@ -6,12 +6,13 @@ import {
   addList,
   addGraphPermission,
   generatePackageJson,
+  validateSPPKGPackage,
   generateLocalizationFiles,
   generateResx,
   generateStringsModule,
   resolveStrings
 } from '../src/index.js';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8 } from 'fflate';
 
 const sdk = new CODBSharePoint();
 
@@ -81,7 +82,7 @@ describe('CODBSharePoint - Offline engine (esbuild, localization, deep import)',
       expect(compiled.errors.some(error => error.message.includes('number'))).toBe(true);
     });
 
-    it('fails unsupported SCSS instead of emitting invalid CSS', async () => {
+    it('compiles real Sass variables and nesting instead of emitting raw SCSS', async () => {
       const ir = createIR({ name: 'SassTest' });
       addWebPart(ir, { name: 'SassWidget', framework: 'react' });
 
@@ -89,8 +90,12 @@ describe('CODBSharePoint - Offline engine (esbuild, localization, deep import)',
       files.set('src/webparts/SassWidget/components/SassWidget.module.scss', '$color: red; .root { color: $color; }');
 
       const compiled = await sdk.compilerAPI.compile(ir, files);
-      expect(compiled.success).toBe(false);
-      expect(compiled.errors.some(error => error.message.includes('Unsupported SCSS syntax'))).toBe(true);
+      expect(compiled.success).toBe(true);
+
+      const css = compiled.files.find(file => file.path.endsWith('SassWidget.module.css'));
+      expect(css).toBeDefined();
+      expect(String(css!.content)).toContain('color: red');
+      expect(String(css!.content)).not.toContain('$color');
     });
   });
 
@@ -100,6 +105,7 @@ describe('CODBSharePoint - Offline engine (esbuild, localization, deep import)',
 
       expect(capabilities.tsx).toBe(true);
       expect(capabilities.jsx).toBe(true);
+      expect(capabilities.sass).toBe(true);
       expect(capabilities.spfx122).toBe(false);
       expect(capabilities.sppkg).toBe(false);
       expect(capabilities.productionBundling).toBe(false);
@@ -134,6 +140,32 @@ describe('CODBSharePoint - Offline engine (esbuild, localization, deep import)',
       const rels = strFromU8(files['OpcStructureTest/_rels/.rels']);
       expect(rels).toContain('OpcWidget.manifest.json');
       expect(files['OpcStructureTest/OpcWidget.manifest.json']).toBeDefined();
+
+      const manifest = JSON.parse(strFromU8(files['OpcStructureTest/OpcWidget.manifest.json']));
+      expect(manifest.loader).toBeUndefined();
+      expect(manifest.loaderConfig.entryModuleId).toBe('OpcWidget.bundle');
+      expect(manifest.loaderConfig.scriptResources['OpcWidget.bundle']).toEqual({
+        type: 'path',
+        path: 'OpcWidget.bundle.js'
+      });
+      expect(manifest.loaderConfig.scriptResources.react.version).toBe('18.2.0');
+      expect(validateSPPKGPackage(result.sppkg!)).toEqual([]);
+    });
+
+    it('detects manifest bundle references that are missing from the package', async () => {
+      const result = await sdk.build({
+        name: 'BrokenOpcTest',
+        solution: { name: 'BrokenOpcTest', version: '1.0.0' },
+        components: [{ name: 'BrokenWidget', framework: 'react' }]
+      });
+
+      const files = unzipSync(result.sppkg!);
+      delete files['BrokenOpcTest/BrokenWidget.bundle.js'];
+
+      const brokenPackage = zipSync(files, { level: 6 });
+      expect(validateSPPKGPackage(brokenPackage)).toContain(
+        'Manifest BrokenOpcTest/BrokenWidget.manifest.json references missing bundle: BrokenWidget.bundle.js'
+      );
     });
   });
 
@@ -173,6 +205,8 @@ describe('CODBSharePoint - Offline engine (esbuild, localization, deep import)',
 
       for (const chunk of bundleResult.chunks) {
         expect(() => new Function(chunk.content)).not.toThrow();
+        expect(chunk.content).toContain('define(');
+        expect(chunk.content).not.toContain('Dynamic require');
       }
     });
   });
@@ -216,8 +250,20 @@ describe('CODBSharePoint - Offline engine (esbuild, localization, deep import)',
 
       const result = await sdk.buildFromIR(ir);
       const paths = result.files.map(f => f.path);
+      expect(paths).not.toContain('lib/index.js');
       expect(paths).toContain('sharepoint/localization/en-us.resx');
       expect(paths).toContain('sharepoint/localization/de-de.resx');
+    });
+  });
+
+  describe('browser production smoke', () => {
+    it('validates the browser-native compile, bundle, and package path', async () => {
+      const smoke = await sdk.browserProductionSmoke();
+
+      expect(smoke.success).toBe(true);
+      expect(smoke.diagnostics).toEqual([]);
+      expect(smoke.sppkgBytes).toBeGreaterThan(0);
+      expect(smoke.bundleCount).toBeGreaterThan(0);
     });
   });
 

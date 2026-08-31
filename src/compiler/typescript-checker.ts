@@ -29,7 +29,7 @@ declare const document: any;
 declare const URL: any;
 declare const Blob: any;
 declare class Error { constructor(message?: string); message: string; }
-declare class Promise<T> { constructor(executor: any); static resolve<T>(value?: T): Promise<T>; }
+declare class Promise<T> { constructor(executor: any); static resolve(): Promise<void>; static resolve<T>(value: T): Promise<T>; }
 declare interface Array<T> { length: number; map<U>(callback: (value: T, index: number) => U): U[]; }
 declare interface ReadonlyArray<T> { length: number; }
 declare interface String { length: number; }
@@ -42,6 +42,10 @@ declare interface IArguments {}
 declare type Record<K extends string | number | symbol, T> = { [P in K]: T };
 declare type Partial<T> = { [P in keyof T]?: T[P] };
 declare const JSON: { stringify(value: any): string };
+
+declare namespace JSX {
+  interface IntrinsicElements { [elementName: string]: any; }
+}
 
 declare module 'react' {
   export type ReactElement<T = any> = any;
@@ -59,7 +63,7 @@ declare module 'react-dom' {
   export function unmountComponentAtNode(container: any): void;
 }
 
-declare module '@microsoft/sp-core-library' { export const Version: { parse(value: string): any }; export const Log: any; }
+declare module '@microsoft/sp-core-library' { export class Version { static parse(value: string): Version; } export const Log: any; }
 declare module '@microsoft/sp-property-pane' { export type IPropertyPaneConfiguration = any; export const PropertyPaneTextField: any; }
 declare module '@microsoft/sp-webpart-base' { export class BaseClientSideWebPart<T = any> { properties: T; context: any; domElement: any; } export type WebPartContext = any; }
 declare module '@microsoft/sp-application-base' { export type IApplicationCustomizerProperties = any; export class BaseApplicationCustomizer<T = any> {} }
@@ -90,6 +94,7 @@ export async function checkTypeScriptFiles(files: Map<string, string>): Promise<
     jsx: ts.JsxEmit.React,
     noEmit: true,
     noLib: true,
+    types: [],
     strict: true,
     skipLibCheck: true,
     allowSyntheticDefaultImports: true,
@@ -97,6 +102,7 @@ export async function checkTypeScriptFiles(files: Map<string, string>): Promise<
   };
 
   const host = ts.createCompilerHost(options, true);
+  host.getCurrentDirectory = () => '';
   host.fileExists = fileName => virtualFiles.has(normalizePath(fileName));
   host.readFile = fileName => virtualFiles.get(normalizePath(fileName));
   host.getSourceFile = (fileName, languageVersion) => {
@@ -104,6 +110,21 @@ export async function checkTypeScriptFiles(files: Map<string, string>): Promise<
     const content = virtualFiles.get(normalized);
     return content === undefined ? undefined : ts.createSourceFile(normalized, content, languageVersion, true);
   };
+  host.resolveModuleNames = (moduleNames, containingFile) => moduleNames.map(moduleName => {
+    if (!moduleName.startsWith('.')) return undefined;
+
+    const containingDir = containingFile.includes('/')
+      ? containingFile.slice(0, containingFile.lastIndexOf('/'))
+      : '';
+    const base = normalizeRelativePath(`${containingDir}/${moduleName}`);
+    const resolved = resolveVirtualModule(base, virtualFiles);
+    if (!resolved) return undefined;
+
+    return {
+      resolvedFileName: resolved.path,
+      extension: resolved.extension
+    };
+  });
   host.writeFile = () => undefined;
 
   const program = ts.createProgram(rootNames, options, host);
@@ -126,6 +147,42 @@ export async function checkTypeScriptFiles(files: Map<string, string>): Promise<
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/');
+}
+
+function normalizeRelativePath(path: string): string {
+  const parts: string[] = [];
+  for (const part of normalizePath(path).split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join('/');
+}
+
+function resolveVirtualModule(
+  base: string,
+  files: Map<string, string>
+): { path: string; extension: import('typescript').Extension } | undefined {
+  if (/\.(s?css|json|png|jpe?g|gif|svg|woff2?|ttf|eot)$/i.test(base)) {
+    return undefined;
+  }
+
+  const candidates: Array<[string, import('typescript').Extension]> = [
+    [`${base}.ts`, '.ts' as import('typescript').Extension],
+    [`${base}.tsx`, '.tsx' as import('typescript').Extension],
+    [`${base}.d.ts`, '.d.ts' as import('typescript').Extension],
+    [`${base}/index.ts`, '.ts' as import('typescript').Extension],
+    [`${base}/index.tsx`, '.tsx' as import('typescript').Extension]
+  ];
+
+  for (const [path, extension] of candidates) {
+    if (files.has(path)) return { path, extension };
+  }
+
+  return undefined;
 }
 
 function isSuppressedDiagnostic(code: number): boolean {

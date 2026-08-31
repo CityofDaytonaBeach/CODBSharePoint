@@ -71,7 +71,7 @@ export class SPFxBundle {
           continue;
         }
 
-        const bundleContent = bundle.content;
+        const bundleContent = this.wrapAsAmdModule(`${name}.bundle`, bundle.content, externals);
         const chunk: BundleChunk = {
           name: `${name}.bundle.js`,
           content: bundleContent,
@@ -100,7 +100,7 @@ export class SPFxBundle {
           continue;
         }
 
-        const bundleContent = bundle.content;
+        const bundleContent = this.wrapAsAmdModule(`${name}.bundle`, bundle.content, externals);
         const chunk: BundleChunk = {
           name: `${name}.bundle.js`,
           content: bundleContent,
@@ -168,7 +168,7 @@ export class SPFxBundle {
 
     const result = await bundleFromVFS(entry, fileMap, {
       bundle: true,
-      format: 'iife',
+      format: 'cjs',
       minify: options.minify ?? false,
       sourceMap: options.sourceMaps ?? false,
       external: externals,
@@ -180,6 +180,33 @@ export class SPFxBundle {
       return { success: true, content: result.code };
     }
     return { success: false, error: result.error || `Failed to bundle entry ${entry}` };
+  }
+
+  private wrapAsAmdModule(name: string, commonJsBundle: string, externals: string[]): string {
+    const deps = Array.from(new Set(externals));
+    const depArgs = deps.map((_, index) => `dep${index}`);
+    const moduleMap = deps.map((dep, index) => `    ${JSON.stringify(dep)}: dep${index}`).join(',\n');
+
+    return `(function (root, factory) {
+  if (typeof define === 'function' && define.amd) {
+    define(${JSON.stringify(name)}, ${JSON.stringify(deps)}, factory);
+  } else {
+    root[${JSON.stringify(name)}] = factory(${depArgs.map(arg => `root.${arg}`).join(', ')});
+  }
+})(typeof self !== 'undefined' ? self : this, function (${depArgs.join(', ')}) {
+  var __codbModules = {
+${moduleMap}
+  };
+  var require = function (id) {
+    if (Object.prototype.hasOwnProperty.call(__codbModules, id)) return __codbModules[id];
+    throw new Error('SPFx external not provided: ' + id);
+  };
+  var module = { exports: {} };
+  var exports = module.exports;
+${commonJsBundle.split('\n').map(line => `  ${line}`).join('\n')}
+  return module.exports && module.exports.__esModule && module.exports.default ? module.exports.default : module.exports;
+});
+`;
   }
 
   getVFS(): VFS {

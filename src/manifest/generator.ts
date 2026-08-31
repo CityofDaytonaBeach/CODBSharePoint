@@ -17,8 +17,9 @@ import { escapeXml } from '../utils/helpers.js';
 // Client-Side Manifests
 // ---------------------------------------------------------------------------
 
-export function generateComponentManifest(component: ComponentDefinition, namespace: string): Record<string, unknown> {
+export function generateComponentManifest(component: ComponentDefinition, namespace: string, spfxVersion: SPFxVersion = '1.22.0'): Record<string, unknown> {
   const manifestId = `{${component.id}}`;
+  const entryModuleId = `${component.name}.bundle`;
 
   const manifest: Record<string, unknown> = {
     id: manifestId,
@@ -38,14 +39,9 @@ export function generateComponentManifest(component: ComponentDefinition, namesp
     }))
   };
 
-  if (component.type === 'webpart') {
-    manifest.loader = {
-      id: 'c10f80bc-9e81-4838-90e2-0e3e164995b4',
-      alias: 'WebPartLoader',
-      internalModuleNames: ['baseBundle'],
-      disablePreload: true
-    };
+  manifest.loaderConfig = generateLoaderConfig(entryModuleId, `${component.name}.bundle.js`, component.framework, spfxVersion);
 
+  if (component.type === 'webpart') {
     manifest.webPartData = {
       id: manifestId,
       alias: manifest.alias,
@@ -64,8 +60,9 @@ export function generateComponentManifest(component: ComponentDefinition, namesp
   return manifest;
 }
 
-export function generateExtensionManifest(ext: ExtensionDefinition, namespace: string): Record<string, unknown> {
+export function generateExtensionManifest(ext: ExtensionDefinition, namespace: string, spfxVersion: SPFxVersion = '1.22.0'): Record<string, unknown> {
   const manifestId = `{${ext.clientSideComponentId}}`;
+  const entryModuleId = `${ext.name}.bundle`;
 
   const manifest: Record<string, unknown> = {
     id: manifestId,
@@ -79,30 +76,62 @@ export function generateExtensionManifest(ext: ExtensionDefinition, namespace: s
     description: { default: ext.description }
   };
 
-  if (ext.type === 'ApplicationCustomizer') {
-    manifest.loader = {
-      id: '4e967090-c0e1-4698-b3bb-2452e4997768',
-      alias: 'ApplicationCustomizerLoader',
-      internalModuleNames: ['baseBundle'],
-      disablePreload: true
+  manifest.loaderConfig = generateLoaderConfig(entryModuleId, `${ext.name}.bundle.js`, 'vanilla', spfxVersion);
+
+  return manifest;
+}
+
+function generateLoaderConfig(entryModuleId: string, bundlePath: string, framework?: string, spfxVersion: SPFxVersion = '1.22.0'): Record<string, unknown> {
+  const scriptResources: Record<string, unknown> = {
+    [entryModuleId]: {
+      type: 'path',
+      path: bundlePath
+    },
+    '@microsoft/sp-core-library': {
+      type: 'component',
+      id: '7263c7d0-1d6a-45ec-8d85-d4d1d234171b',
+      version: spfxVersion
+    },
+    '@microsoft/sp-property-pane': {
+      type: 'component',
+      id: 'f9e737b7-f0df-4597-ba8c-3060f82380db',
+      version: spfxVersion
+    },
+    '@microsoft/sp-webpart-base': {
+      type: 'component',
+      id: '974a7777-0990-4136-8fa6-95d80114c2e0',
+      version: spfxVersion
+    },
+    '@microsoft/sp-application-base': {
+      type: 'component',
+      id: '4df9bb86-ab0a-4aab-ab5f-48bf167048fb',
+      version: spfxVersion
+    },
+    '@microsoft/sp-listview-extensibility': {
+      type: 'component',
+      id: 'b1ab4aaa-f779-405c-8683-d3a750b5d18d',
+      version: spfxVersion
+    }
+  };
+
+  if (framework === 'react') {
+    scriptResources.react = {
+      type: 'component',
+      id: '0d910409-0bbc-4d68-bc46-1c6918f1f20c',
+      version: '18.2.0'
     };
-  } else if (ext.type === 'FieldCustomizer') {
-    manifest.loader = {
-      id: '627e3e61-7205-4dd8-9d58-5b355d22e368',
-      alias: 'FieldCustomizerLoader',
-      internalModuleNames: ['baseBundle'],
-      disablePreload: true
-    };
-  } else if (ext.type === 'ListViewCommandSet') {
-    manifest.loader = {
-      id: 'c10f80bc-9e81-4838-90e2-0e3e164995b5',
-      alias: 'CommandSetLoader',
-      internalModuleNames: ['baseBundle'],
-      disablePreload: true
+    scriptResources['react-dom'] = {
+      type: 'component',
+      id: 'aa0a46ec-1505-43cd-a44a-93f3a5aa460a',
+      version: '18.2.0'
     };
   }
 
-  return manifest;
+  return {
+    internalModuleBaseUrls: ['./'],
+    entryModuleId,
+    scriptResources
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,12 +354,12 @@ export function generatePackageJson(ir: CODBIR): Record<string, unknown> {
     },
     dependencies,
     devDependencies: {
-      '@microsoft/sp-build-web': '1.18.0',
-      '@microsoft/sp-module-interfaces': '1.18.0',
-      '@microsoft/sp-tslint-rules': '1.18.0',
-      '@microsoft/sp-webpart-workbench': '1.18.0',
+      '@microsoft/sp-build-web': spfxVersion,
+      '@microsoft/sp-module-interfaces': spfxVersion,
+      '@microsoft/sp-tslint-rules': spfxVersion,
+      '@microsoft/sp-webpart-workbench': spfxVersion,
       'gulp': '^4.0.2',
-      'typescript': '4.7.4'
+      'typescript': compatibility?.typescript || '5.3'
     }
   };
 }

@@ -80,7 +80,7 @@ import {
 } from './manifest/generator.js';
 
 // OPC
-import { generateSPPKG, validateSPPKGStructure } from './opc/sppkg.js';
+import { generateSPPKG, validateSPPKGStructure, validateSPPKGPackage } from './opc/sppkg.js';
 
 // Provisioning artifacts
 import {
@@ -133,6 +133,11 @@ import { SecurityScanner } from './security/scanner.js';
 
 // Tools
 import { ToolAPIService } from './tools/index.js';
+import { AIService } from './ai/index.js';
+import { findKnowledgeEntries, getKnowledgeCatalog, summarizeKnowledge } from './knowledge/index.js';
+
+// Browser runtime
+import { initBrowser, initBrowserCustom, downloadFile, downloadSPPKG, browserBuildProof } from './browser/index.js';
 
 // Simulator
 import { SharePointSimulator } from './simulator/index.js';
@@ -472,6 +477,15 @@ export class CODBSharePoint {
     if (compileResult.success && bundleResult.success) {
       try {
         sppkg = generateSPPKG(ir, bundleResult.files);
+        const packageErrors = validateSPPKGPackage(sppkg);
+        if (packageErrors.length > 0) {
+          errors.push(...packageErrors.map(message => ({
+            code: 'SPPKG002',
+            message,
+            severity: 'error',
+            category: 'packaging'
+          })));
+        }
       } catch (error) {
         errors.push({
           code: 'PKG001',
@@ -606,7 +620,7 @@ export class CODBSharePoint {
       tsx: true,
       jsx: true,
       react: true,
-      sass: false,
+      sass: true,
       cssModules: true,
       productionBundling: false,
       spfxExternals: false,
@@ -623,6 +637,68 @@ export class CODBSharePoint {
     };
   }
 
+  async browserProductionSmoke(): Promise<{
+    success: boolean;
+    diagnostics: string[];
+    sppkgBytes: number;
+    bundleCount: number;
+  }> {
+    const diagnostics: string[] = [];
+    const result = await this.build({
+      solution: {
+        name: 'BrowserSmoke',
+        version: '1.0.0',
+        description: 'Browser-only production smoke test',
+        author: 'CODBSharePoint'
+      },
+      components: [{
+        name: 'BrowserSmokeWebPart',
+        displayName: 'Browser Smoke Web Part',
+        description: 'Validates browser-native compile, bundle, and package output',
+        framework: 'react'
+      }],
+      options: {
+        runtime: 'browser',
+        minify: true,
+        sourceMaps: false
+      }
+    });
+
+    if (!result.success) {
+      diagnostics.push(...result.errors.map(error => `${error.code}: ${error.message}`));
+    }
+
+    if (!result.sppkg) {
+      diagnostics.push('No SPPKG bytes were produced.');
+    } else {
+      diagnostics.push(...validateSPPKGPackage(result.sppkg));
+    }
+
+    for (const file of result.files) {
+      if (typeof file.content !== 'string') continue;
+      if (/\b(process|Buffer|__dirname|__filename)\b/.test(file.content)) {
+        diagnostics.push(`Generated file contains Node global reference: ${file.path}`);
+      }
+    }
+
+    for (const chunk of result.bundle.chunks as Array<{ name: string; content?: string }>) {
+      if (!chunk.content) continue;
+      if (!chunk.content.includes('define(')) {
+        diagnostics.push(`Bundle is not AMD-wrapped for SPFx loader: ${chunk.name}`);
+      }
+      if (/\b(process|Buffer|__dirname|__filename)\b/.test(chunk.content)) {
+        diagnostics.push(`Bundle contains Node global reference: ${chunk.name}`);
+      }
+    }
+
+    return {
+      success: result.success && diagnostics.length === 0,
+      diagnostics,
+      sppkgBytes: result.sppkg?.length || 0,
+      bundleCount: result.bundle.chunks.length
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Tool API (for AI agents)
   // ---------------------------------------------------------------------------
@@ -632,6 +708,10 @@ export class CODBSharePoint {
    */
   tools(config?: Partial<SolutionConfig>): ToolAPI {
     return new ToolAPIService(config);
+  }
+
+  ai(): AIService {
+    return new AIService(this);
   }
 
   // ---------------------------------------------------------------------------
@@ -670,7 +750,7 @@ export class CODBSharePoint {
       generatePackageJson
     };
   }
-  get opcAPI() { return { generateSPPKG, validateSPPKGStructure }; }
+  get opcAPI() { return { generateSPPKG, validateSPPKGStructure, validateSPPKGPackage }; }
   get validatorAPI() { return this.validator; }
   get analyzerAPI() { return this.analyzer; }
   get securityAPI() { return this.securityScanner; }
@@ -699,6 +779,24 @@ export class CODBSharePoint {
       isEsbuildAvailable,
       transform: esbuildTransform,
       bundle: esbuildBundle
+    };
+  }
+
+  get knowledgeAPI() {
+    return {
+      catalog: getKnowledgeCatalog,
+      find: findKnowledgeEntries,
+      summary: summarizeKnowledge
+    };
+  }
+
+  get browserAPI() {
+    return {
+      init: initBrowser,
+      initCustom: initBrowserCustom,
+      download: downloadFile,
+      downloadSPPKG,
+      buildProof: browserBuildProof
     };
   }
 
@@ -911,9 +1009,24 @@ export { SPFxValidator } from './validator/spfx-validator.js';
 export { SPFxAnalyzer } from './analyzer/spfx-analyzer.js';
 export { SecurityScanner } from './security/scanner.js';
 export { ToolAPIService } from './tools/index.js';
+export { AIService } from './ai/index.js';
+export type { AIDiagnostic, AIFix, AIPlan, AIProfile, AIProject, AIProjectInput, AISourceCompatibility } from './ai/index.js';
+export { findKnowledgeEntries, getKnowledgeCatalog, summarizeKnowledge } from './knowledge/index.js';
+export type { ApiEntry, DependencyEntry, KnowledgeEntry, KnowledgeStatus, PatternEntry, SchemaEntry, SharePointKnowledgeCatalog } from './knowledge/index.js';
 export { SharePointSimulator } from './simulator/index.js';
 export { SPFxImporter } from './import/spfx-import.js';
 export { SPFxExporter } from './export/spfx-export.js';
+export {
+  generatePackageSolution,
+  generateComponentManifest,
+  generateExtensionManifest,
+  generateFeatureXml,
+  generateElementsXml,
+  generateConfigJson,
+  generateTsConfig,
+  generatePackageJson,
+} from './manifest/generator.js';
+
 export {
   generateSharePointArtifacts,
   generateThemeJson,
@@ -934,6 +1047,7 @@ export {
   transformContent as esbuildTransform,
   bundleFromVFS as esbuildBundle
 } from './bundler/esbuild-runtime.js';
+export { generateSPPKG, validateSPPKGStructure, validateSPPKGPackage } from './opc/sppkg.js';
 
 // Serverless authoring support
 export { Designer } from './designer/index.js';
@@ -944,3 +1058,13 @@ export { createStorage, MemoryStorage, LocalStorageAdapter, IndexedDBStorage } f
 export type { StorageAdapter, StorageValue, StorageKind } from './storage/index.js';
 export { generateStaticPublish } from './publish/index.js';
 export type { StaticPublishOptions, StaticPublishResult } from './publish/index.js';
+
+// Browser runtime utilities
+export {
+  initBrowser,
+  initBrowserCustom,
+  downloadFile,
+  downloadSPPKG,
+  browserBuildProof
+} from './browser/index.js';
+export type { BrowserInitResult, BrowserBuildProof, DownloadOptions } from './browser/index.js';

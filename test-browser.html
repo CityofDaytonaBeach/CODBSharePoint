@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CODBSharePoint - Browser Integration Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 24px; }
+    h1 { color: #0078d4; margin-bottom: 8px; font-size: 20px; }
+    .subtitle { color: #888; margin-bottom: 24px; font-size: 13px; }
+    .status-bar { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .status-bar h2 { font-size: 14px; color: #0078d4; margin-bottom: 8px; }
+    .status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: #22c55e; }
+    .dot.red { background: #ef4444; }
+    .dot.yellow { background: #eab308; }
+    .dot.blue { background: #3b82f6; }
+    .dot.gray { background: #666; }
+    #log { background: #0d1117; border: 1px solid #333; border-radius: 8px; padding: 16px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; line-height: 1.6; max-height: 60vh; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .log-ok { color: #22c55e; }
+    .log-err { color: #ef4444; }
+    .log-info { color: #3b82f6; }
+    .log-warn { color: #eab308; }
+    .btn { background: #0078d4; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-top: 12px; }
+    .btn:hover { background: #106ebe; }
+    .btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <h1>CODBSharePoint - Browser Integration Test</h1>
+  <p class="subtitle">Proves the full generate &rarr; compile &rarr; bundle &rarr; package pipeline runs in-browser with zero Node.js</p>
+
+  <div class="status-bar">
+    <h2>Runtime Status</h2>
+    <div id="runtime-status">
+      <div class="status-row"><span class="dot gray"></span> Loading SDK...</div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-run" disabled>Run Full Pipeline Test</button>
+    <button class="btn" id="btn-download" disabled>Download .sppkg</button>
+  </div>
+
+  <div id="log"></div>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('runtime-status');
+    const btnRun = document.getElementById('btn-run');
+    const btnDownload = document.getElementById('btn-download');
+    let lastSPPKG = null;
+
+    function log(msg, cls = '') {
+      const line = document.createElement('span');
+      line.className = cls;
+      line.textContent = `[${new Date().toISOString().slice(11,19)}] ${msg}\n`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(html) { statusEl.innerHTML = html; }
+
+    let CODBSharePoint;
+    try {
+      log('Importing CODBSharePoint SDK...', 'log-info');
+      const mod = await import('./dist/codbsharepoint.mjs');
+      CODBSharePoint = mod.CODBSharePoint || mod.default;
+      setStatus('<div class="status-row"><span class="dot green"></span> SDK loaded successfully</div>');
+      log('SDK imported', 'log-ok');
+    } catch (err) {
+      setStatus('<div class="status-row"><span class="dot red"></span> SDK load failed</div>');
+      log(`SDK import failed: ${err.message}`, 'log-err');
+      throw err;
+    }
+
+    // Run button handler
+    btnRun.disabled = false;
+    btnRun.addEventListener('click', async () => {
+      btnRun.disabled = true;
+      btnRun.textContent = 'Running...';
+      logEl.innerHTML = '';
+      lastSPPKG = null;
+      btnDownload.disabled = true;
+
+      try {
+        await runFullPipelineTest();
+      } catch (err) {
+        log(`FATAL: ${err.message}`, 'log-err');
+      } finally {
+        btnRun.disabled = false;
+        btnRun.textContent = 'Run Full Pipeline Test';
+      }
+    });
+
+    async function runFullPipelineTest() {
+      const sdk = new CODBSharePoint();
+      const startTime = performance.now();
+
+      log('=== CODBSharePoint Browser Integration Test ===', 'log-info');
+      log('');
+
+      // Step 1: Knowledge Catalog
+      log('Step 1: Knowledge Catalog', 'log-info');
+      const catalog = sdk.knowledgeAPI.summary();
+      log(`  REST endpoints: ${catalog.sharePointRest}`, 'log-ok');
+      log(`  Graph endpoints: ${catalog.graph}`, 'log-ok');
+      log(`  Schema entries: ${catalog.schema}`, 'log-ok');
+      log(`  Patterns: ${catalog.sourcePatterns}`, 'log-ok');
+      log(`  Total categories: ${Object.keys(catalog).length}`, 'log-ok');
+      setStatus(`<div class="status-row"><span class="dot green"></span> Knowledge catalog: ${Object.values(catalog).reduce((a,b) => a+b, 0)} entries</div>`);
+      log('');
+
+      // Step 2: AI Contract
+      log('Step 2: AI Contract Layer', 'log-info');
+      const ai = sdk.ai();
+      const context = JSON.parse(ai.exportPromptContext());
+      log(`  Capabilities: ${Object.keys(context.capabilities).length}`, 'log-ok');
+      log(`  Rules: ${context.rules.length}`, 'log-ok');
+      log(`  Profiles: ${context.profiles.length}`, 'log-ok');
+      log(`  Knowledge embedded: ${Object.keys(context.knowledge).length} categories`, 'log-ok');
+      log('');
+
+      // Step 3: Generate project
+      log('Step 3: AI Project Generation', 'log-info');
+      const project = ai.generate({
+        solution: { name: 'BrowserTest' },
+        components: [{ name: 'BrowserTestWebPart', framework: 'react' }],
+        permissions: ['User.Read.All'],
+        files: {
+          'src/webparts/BrowserTest/components/BrowserTest.tsx': [
+            "import * as React from 'react';",
+            "import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';",
+            "export interface IBrowserTestProps { title: string; }",
+            "export default class BrowserTestWebPart extends BaseClientSideWebPart<IBrowserTestProps> {",
+            "  public render(): void { this.domElement.innerHTML = '<div>Browser Test</div>'; }",
+            "}"
+          ].join('\n')
+        }
+      });
+      log(`  Solution: ${project.ir.metadata.name}`, 'log-ok');
+      log(`  Components: ${project.ir.components.length}`, 'log-ok');
+      log(`  Permissions: ${project.ir.graph.map(p => p.scope).join(', ')}`, 'log-ok');
+      log('');
+
+      // Step 4: Compatibility Assessment
+      log('Step 4: Source Compatibility Assessment', 'log-info');
+      const compatibility = ai.assessSourceCompatibility(project);
+      log(`  Compatible: ${compatibility.compatible}`, compatibility.compatible ? 'log-ok' : 'log-warn');
+      log(`  Supported imports: ${compatibility.supportedImports.length}`, 'log-ok');
+      log(`  Unsupported imports: ${compatibility.unsupportedImports.length}`, 'log-ok');
+      log(`  Graph permissions inferred: ${compatibility.graphPermissions.join(', ')}`, 'log-ok');
+      log('');
+
+      // Step 5: Build
+      log('Step 5: Full Build Pipeline', 'log-info');
+      const buildResult = await sdk.build({
+        solution: project.ir.metadata,
+        components: project.ir.components.map(c => ({
+          name: c.name,
+          displayName: c.displayName,
+          description: c.description,
+          framework: c.framework
+        })),
+        graph: project.ir.graph.map(p => p.scope),
+        files: project.files,
+        options: { skipValidation: true, minify: false }
+      });
+
+      log(`  Success: ${buildResult.success}`, buildResult.success ? 'log-ok' : 'log-err');
+      log(`  Compiled files: ${buildResult.files.length}`, 'log-ok');
+      log(`  Errors: ${buildResult.errors.length}`, buildResult.errors.length > 0 ? 'log-err' : 'log-ok');
+      log(`  Duration: ${buildResult.duration}ms`, 'log-ok');
+      log('');
+
+      // Step 6: SPPKG Package
+      log('Step 6: SPPKG Package Validation', 'log-info');
+      if (buildResult.sppkg) {
+        lastSPPKG = buildResult.sppkg;
+        log(`  Package size: ${buildResult.sppkg.length} bytes`, 'log-ok');
+        log(`  Is ZIP: ${buildResult.sppkg[0] === 0x50 && buildResult.sppkg[1] === 0x4B}`, 'log-ok');
+
+        const pkgErrors = sdk.opcAPI.validateSPPKGPackage(buildResult.sppkg);
+        log(`  Structural errors: ${pkgErrors.length}`, pkgErrors.length === 0 ? 'log-ok' : 'log-err');
+        if (pkgErrors.length > 0) {
+          pkgErrors.forEach(e => log(`    - ${e}`, 'log-err'));
+        }
+
+        btnDownload.disabled = false;
+      } else {
+        log('  No SPPKG produced', 'log-err');
+      }
+      log('');
+
+      // Step 7: Browser Smoke Test
+      log('Step 7: Browser Production Smoke Test', 'log-info');
+      const smoke = await sdk.browserProductionSmoke();
+      log(`  Smoke passed: ${smoke.success}`, smoke.success ? 'log-ok' : 'log-err');
+      log(`  SPPKG bytes: ${smoke.sppkgBytes}`, 'log-ok');
+      log(`  Bundle count: ${smoke.bundleCount}`, 'log-ok');
+      smoke.diagnostics.forEach(d => log(`  [diag] ${d}`, 'log-warn'));
+      log('');
+
+      // Summary
+      const elapsed = (performance.now() - startTime).toFixed(0);
+      log(`=== Test Complete in ${elapsed}ms ===`, 'log-info');
+      log(`Result: ${buildResult.success && smoke.success ? 'ALL PASSED' : 'SOME FAILURES'}`,
+          buildResult.success && smoke.success ? 'log-ok' : 'log-err');
+
+      setStatus(`<div class="status-row"><span class="dot ${buildResult.success && smoke.success ? 'green' : 'red'}"></span> ${buildResult.success && smoke.success ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED'} (${elapsed}ms)</div>`);
+    }
+
+    // Download button
+    btnDownload.addEventListener('click', () => {
+      if (!lastSPPKG) return;
+      const blob = new Blob([lastSPPKG], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'BrowserTest.sppkg';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+      log('Downloaded BrowserTest.sppkg', 'log-ok');
+    });
+  </script>
+</body>
+</html>

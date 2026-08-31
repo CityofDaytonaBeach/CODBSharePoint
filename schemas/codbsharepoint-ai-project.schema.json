@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codbsharepoint.local/schemas/codbsharepoint-ai-project.schema.json",
+  "title": "CODBSharePoint AI Project",
+  "type": "object",
+  "required": ["schemaVersion", "solution", "components"],
+  "properties": {
+    "schemaVersion": { "const": "codbsharepoint.ai/1.0" },
+    "intent": { "type": "string" },
+    "target": {
+      "type": "object",
+      "properties": {
+        "spfxVersion": { "enum": ["1.22.0", "1.21.0"] },
+        "runtime": { "enum": ["browser", "webworker"] },
+        "componentTypes": { "type": "array", "items": { "enum": ["webpart"] } }
+      }
+    },
+    "solution": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "description": { "type": "string" },
+        "author": { "type": "string" }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "type": { "const": "webpart" },
+          "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+          "displayName": { "type": "string" },
+          "description": { "type": "string" },
+          "framework": { "enum": ["react", "vanilla"] },
+          "features": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "graphPermissions": { "type": "array", "items": { "type": "string" } },
+        "lists": { "type": "array" },
+        "fields": { "type": "array" },
+        "contentTypes": { "type": "array" }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

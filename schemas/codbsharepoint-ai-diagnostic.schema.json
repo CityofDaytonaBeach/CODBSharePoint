@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codbsharepoint.local/schemas/codbsharepoint-ai-diagnostic.schema.json",
+  "title": "CODBSharePoint AI Diagnostic",
+  "type": "object",
+  "required": ["code", "severity", "stage", "message"],
+  "properties": {
+    "code": { "type": "string" },
+    "severity": { "enum": ["error", "warning", "info"] },
+    "stage": { "type": "string" },
+    "message": { "type": "string" },
+    "file": { "type": "string" },
+    "line": { "type": "number" },
+    "column": { "type": "number" },
+    "fix": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["addGraphPermission", "setSolutionName", "setVersion", "replaceFile", "addWebPart"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}
