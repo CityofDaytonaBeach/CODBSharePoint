@@ -1,930 +1,2386 @@
-Yes. You could build a browser-based SharePoint/SPFx packager that generates complete deployable SharePoint packages without requiring developers to manually set up the usual Node/SPFx toolchain.
+# CODBSharePoint V2: Production Browser-Native SPFx Compiler, Bundler, Validator and SPPKG Engine
 
-The important distinction is that the browser can generate and package essentially the entire SPFx project, while SharePoint itself still performs the final deployment and execution.
+## Mission
 
-You could support:
+Upgrade the existing **CODBSharePoint SDK** into a production-grade, browser-native SharePoint Framework development and packaging engine capable of producing **real, runnable `.sppkg` packages** that can be uploaded directly into a SharePoint Online App Catalog.
 
-SPFx Web Parts
-Application Customizers
-Field Customizers
-ListView Command Sets
-Adaptive Card Extensions
-React components
-Microsoft Graph integrations
-SharePoint REST integrations
-Lists/libraries provisioning
-Site columns/content types
-property panes
-localization
-icons/assets
-permissions declarations
-tenant-wide deployment settings
-Teams integration
-.sppkg generation
-complete downloadable source projects
-The interesting architecture
+CODBSharePoint must function as a self-contained SDK.
 
-Instead of trying to run Microsoft's entire Yeoman/Gulp SPFx environment in the browser, I'd build your own SPFx compiler/packager pipeline.
+The primary production path must NOT require:
 
-Browser IDE
-   │
-   ├── Visual Web Part Builder
-   ├── Code Editor
-   ├── Extension Builder
-   ├── Manifest Builder
-   ├── Permission Builder
-   └── SharePoint Schema Builder
-           │
-           ▼
-     Project Generator
-           │
-           ├── TypeScript
-           ├── React
-           ├── SCSS/CSS
-           ├── manifests
-           ├── package-solution.json
-           └── config files
-           │
-           ▼
-       Browser Compiler
-           │
-           ├── esbuild-wasm / SWC WASM
-           ├── TypeScript WASM
-           └── dependency resolver
-           │
-           ▼
-      SPFx Bundle Builder
-           │
-           ├── JS bundles
-           ├── manifests
-           ├── assets
-           └── feature XML
-           │
-           ▼
-       SPPKG Generator
-           │
-           ▼
-      my-webpart.sppkg
+* GitHub
+* GitHub Actions
+* VPS/server
+* CI/CD service
+* Docker
+* locally installed Node.js
+* locally installed npm
+* Yeoman
+* Gulp
+* local Webpack
+* local Heft
+* Visual Studio
+* VS Code
 
-The particularly fun part, because apparently Microsoft's build chain wasn't complicated enough already, is .sppkg. An SPPKG is based on the Open Packaging Conventions format, so you don't necessarily need Microsoft's tooling merely to construct the package. You can generate its XML parts, relationships, manifests, assets, and ZIP container yourself.
+Use Microsoft's **current SPFx 1.22+ Heft/Webpack architecture as the reference implementation**, while replacing Node-dependent build stages with browser-compatible implementations.
 
-That means a browser application could potentially have:
+Use proven open-source compiler technology instead of inventing TypeScript/JavaScript compilation.
 
-Create Project
+---
 
-  Web Parts
-    + Add Web Part
+# 1. FIRST: AUDIT THE EXISTING REPOSITORY
 
-  Extensions
-    + Application Customizer
-    + Field Customizer
-    + Command Set
+Before changing code, inspect the entire CODBSharePoint repository.
 
-  Adaptive Cards
-    + Add ACE
+Identify all current implementations involving:
 
-  SharePoint
-    + Lists
-    + Libraries
-    + Columns
-    + Content Types
+* compiler
+* bundler
+* esbuild
+* esbuild-wasm
+* TypeScript
+* TSX
+* JSX
+* React
+* CSS
+* SCSS
+* manifests
+* package-solution
+* Feature Framework
+* `.sppkg`
+* OPC
+* ZIP generation
+* Designer
+* project IR
+* virtual files
+* storage
+* validation
+* security
+* permissions
+* Graph
+* simulator
+* Tool API
+* import/export
+* testing
 
-  APIs
-    + Microsoft Graph
-    + SharePoint REST
+Create an internal implementation matrix:
 
-  Permissions
-    + User.Read
-    + Sites.Read.All
-    + ...
+```text
+Feature
+Existing implementation
+Working?
+Production ready?
+Needs replacement?
+Replacement technology
+Tests required
+```
 
-  Build
-    ✓ Validate
-    ✓ Compile
-    ✓ Bundle
-    ✓ Package
+Do NOT destroy working functionality.
 
-        [ Build .sppkg ]
+Extend and refactor where appropriate.
 
-You could go considerably further and make this a Lovable-style SharePoint application builder. A user could describe:
+Maintain backward compatibility with existing public APIs whenever practical.
 
-Create an employee directory web part using Microsoft Graph. Show employee photo, name, title, department, phone number, email, and manager. Add department filtering and search.
+---
 
-Your system could generate the React/SPFx implementation, Graph permission declarations, manifests, property pane, package configuration and ultimately:
+# 2. TARGET MICROSOFT'S MODERN SPFX ARCHITECTURE
 
-employee-directory.sppkg
+Treat modern Microsoft SPFx as the compatibility reference.
 
-plus:
+Primary target:
 
-employee-directory-source.zip
+```text
+SPFx 1.22+
+```
 
-I would also make the project format SPFx-compatible rather than browser-builder-specific. Someone should be able to export the source and subsequently run normal Microsoft SPFx tooling against it. Otherwise you've created another proprietary development island, which humanity has somehow never been short of.
+Official conceptual pipeline:
 
-A bigger opportunity
+```text
+Microsoft SPFx
 
-Given what you've been experimenting with around browser-only tooling, I wouldn't limit this to a "packager."
+Source
+  ↓
+RushStack Heft
+  ↓
+TypeScript
+Sass
+Webpack 5
+SPFx Heft Plugins
+  ↓
+Bundle
+  ↓
+Package Solution
+  ↓
+SPPKG
+```
 
-Build a SharePoint Development Runtime for the Browser:
+CODBSharePoint should implement the equivalent browser-native pipeline:
 
-@yourlibrary/spfx-browser
+```text
+CODBSharePoint
 
-Compiler
-Package Builder
-Manifest Generator
-SPFx Schema Validator
-SharePoint API Client
-Graph API Client
-Component Preview Runtime
-Web Part Designer
-Extension Designer
-Provisioning Engine
-SPPKG Generator
-Project Importer
-Project Exporter
+Source
+  ↓
+Project IR
+  ↓
+Virtual File System
+  ↓
+esbuild-wasm
+  ↓
+Browser-compatible Sass
+  ↓
+CODB SPFx Resolver
+  ↓
+CODB SPFx Bundler
+  ↓
+CODB Manifest Compiler
+  ↓
+CODB Feature Compiler
+  ↓
+CODB Package Solution Compiler
+  ↓
+CODB OPC Packager
+  ↓
+CODB SPPKG Validator
+  ↓
+Real .sppkg
+```
 
-Then your React applications could do something like:
+Do NOT attempt to literally execute Heft inside the browser unless technically appropriate.
 
-import { SPFxProject } from "@yourlibrary/spfx-browser";
+Instead:
 
-const project = new SPFxProject({
-  name: "employee-directory"
+**Use Microsoft's current Heft/Webpack/SPFx build behavior as the compatibility specification and reference implementation.**
+
+---
+
+# 3. STUDY MICROSOFT'S CURRENT OPEN-SOURCE BUILD SYSTEM
+
+Study and document relevant behavior from Microsoft's current SPFx tooling and RushStack.
+
+Pay particular attention to:
+
+```text
+@microsoft/spfx-web-build-rig
+@microsoft/spfx-heft-plugins
+
+@rushstack/heft
+@rushstack/heft-typescript-plugin
+@rushstack/heft-sass-plugin
+@rushstack/heft-webpack5-plugin
+
+webpack
+typescript
+sass
+ts-loader
+sass-loader
+```
+
+Study Microsoft's ejected Webpack configuration for modern SPFx.
+
+Understand how Microsoft handles:
+
+* entry points
+* AMD output
+* manifests
+* localization
+* externals
+* React
+* SPFx runtime modules
+* CSS
+* SCSS
+* CSS modules
+* assets
+* hashing
+* production bundles
+* package-solution
+* Feature Framework
+* debug versus production
+* component loader metadata
+
+Do not copy blindly.
+
+Document which behaviors CODBSharePoint must reproduce for compatibility.
+
+---
+
+# 4. USE ESBUILD-WASM AS THE PRIMARY BROWSER COMPILER
+
+Use:
+
+```text
+esbuild-wasm
+```
+
+as the primary browser-native compiler and bundler engine.
+
+Do NOT use regex or string manipulation to "compile" TypeScript.
+
+Initialize esbuild correctly:
+
+```ts
+import * as esbuild from "esbuild-wasm";
+
+await esbuild.initialize({
+    wasmURL: "/compiler/esbuild.wasm",
+    worker: true
 });
+```
 
-project.addWebPart({
-  name: "EmployeeDirectory",
-  framework: "react"
-});
+Build a CODB abstraction:
 
-project.permissions.add(
-  "User.Read.All"
-);
+```ts
+interface CODBCompiler {
+    initialize(): Promise<void>;
 
-const result = await project.build();
+    transform(
+        source: string,
+        options: TransformOptions
+    ): Promise<TransformResult>;
 
-await result.downloadSPPKG();
+    build(
+        project: VirtualProject,
+        options: BuildOptions
+    ): Promise<CompilerResult>;
+}
+```
 
-And an especially valuable feature would be importing an existing SPFx project. Drop a ZIP/project into the browser, inspect its manifests and components, visually modify it, rebuild it, and export a new .sppkg.
+Support:
 
-The hardest engineering areas would be faithfully reproducing Microsoft's bundling/package expectations, resolving arbitrary npm dependencies completely in-browser, keeping compatibility across SPFx versions, and validating that generated SPPKGs behave identically to Microsoft-generated packages. Those are solvable problems, but they're where I'd concentrate the research rather than spending months cloning Yeoman.
+```text
+.js
+.jsx
+.ts
+.tsx
+```
 
-This could realistically become a browser-native SPFx SDK + visual builder, not merely a file converter. That is a substantially more interesting project.
+Correctly compile:
 
-Exactly. The right scope is not a SharePoint UI builder. It is a framework-independent, browser-capable SharePoint build + packaging SDK.
+* TypeScript
+* JSX
+* TSX
+* React
+* classes
+* interfaces
+* types
+* enums
+* generics
+* imports
+* exports
+* async/await
+* modern ECMAScript
+* source maps
 
-Your AI tools, Lovable apps, React apps, Vue apps, Next.js apps, or plain JavaScript provide the design/code. The SDK turns that into the correct SharePoint artifact and delivers something actually uploadable instead of presenting the user with 47 files and a hopeful expression.
+JSX must NEVER be stripped.
 
-Core architecture
-AI / Application
-│
-├── JavaScript
-├── React
-├── Next.js
-├── Vue
-├── Lovable
-├── AI Agent
-└── Visual Builder
+---
+
+# 5. ADD TYPESCRIPT COMPILER SUPPORT WHERE ESBUILD IS INSUFFICIENT
+
+esbuild transpiles TypeScript but does not perform complete TypeScript semantic type checking.
+
+Therefore integrate the TypeScript compiler where appropriate.
+
+Architecture:
+
+```text
+TypeScript Source
+       │
+       ├─────────────► TypeScript Language Service
+       │                     ↓
+       │                Diagnostics
+       │
+       ▼
+   esbuild-wasm
+       ↓
+Transpile + Bundle
+```
+
+Use TypeScript for:
+
+* semantic diagnostics
+* type errors
+* declaration analysis
+* compatibility checks
+
+Use esbuild-wasm for:
+
+* fast transpilation
+* JSX/TSX
+* dependency graph
+* bundling
+* minification
+* source maps
+
+Do not confuse successful transpilation with valid TypeScript.
+
+---
+
+# 6. CREATE A VIRTUAL FILE SYSTEM
+
+Implement:
+
+```ts
+class VirtualFileSystem {
+    writeFile(path, content)
+    readFile(path)
+    deleteFile(path)
+    exists(path)
+    list(path)
+    glob(pattern)
+    mkdir(path)
+    stat(path)
+}
+```
+
+Represent a complete SPFx project:
+
+```text
+/project
+
+package.json
+tsconfig.json
+
+/config
+    config.json
+    package-solution.json
+
+/src
+    /webparts
+    /extensions
+    /adaptiveCardExtensions
+
+/lib
+
+/dist
+
+/temp
+
+/sharepoint
+    /solution
+```
+
+All compiler operations must operate against the VFS.
+
+No physical filesystem should be required.
+
+---
+
+# 7. IMPLEMENT ESBUILD VFS PLUGINS
+
+Create esbuild plugins capable of resolving modules directly from CODBSharePoint's virtual filesystem.
+
+Example:
+
+```text
+CODBVfsPlugin
+CODBSpfxResolverPlugin
+CODBCssPlugin
+CODBSassPlugin
+CODBAssetPlugin
+CODBExternalPlugin
+CODBLocalizationPlugin
+```
+
+Resolution:
+
+```text
+import
+   ↓
+CODB Resolver
+   ↓
+┌─────────────┬──────────────┬──────────────┐
+Internal      SPFx           Package
+source        external       dependency
+   ↓              ↓               ↓
+VFS          runtime map     dependency cache
+```
+
+Never require files to exist on a local OS filesystem.
+
+---
+
+# 8. CREATE A BROWSER PACKAGE REGISTRY/CACHE
+
+Implement a package abstraction for dependencies.
+
+Example:
+
+```ts
+interface PackageRegistry {
+    resolve(name, version)
+    getPackage(name, version)
+    cachePackage(pkg)
+    hasPackage(name, version)
+}
+```
+
+Allow dependencies to be:
+
+* prebundled with CODBSharePoint
+* loaded from CDN
+* loaded from package registry
+* stored in IndexedDB
+* imported manually
+* cached for offline compilation
+
+Do NOT depend on a traditional `node_modules` directory.
+
+---
+
+# 9. SPFX EXTERNAL RESOLVER
+
+Create a dedicated resolver for Microsoft SPFx modules.
+
+Understand packages including:
+
+```text
+@microsoft/sp-core-library
+@microsoft/sp-webpart-base
+@microsoft/sp-http
+@microsoft/sp-property-pane
+@microsoft/sp-extension-base
+@microsoft/sp-loader
+@microsoft/sp-component-base
+
+react
+react-dom
+```
+
+Determine whether each dependency should be:
+
+```text
+bundled
+external
+SharePoint-provided
+runtime-loaded
+```
+
+Never blindly bundle Microsoft SPFx runtime dependencies.
+
+Create:
+
+```ts
+SPFxExternalResolver
+```
+
+with version-aware rules.
+
+---
+
+# 10. SPFX VERSION COMPATIBILITY DATABASE
+
+Create a version compatibility layer.
+
+Example:
+
+```ts
+interface SPFxVersionProfile {
+    version: string;
+
+    reactVersion: string;
+
+    typescriptRange: string;
+
+    manifestVersion: string;
+
+    supportedComponents: string[];
+
+    externals: ExternalDefinition[];
+
+    buildBehavior: BuildBehavior;
+
+    packagingBehavior: PackagingBehavior;
+}
+```
+
+Primary support:
+
+```text
+SPFx 1.22+
+```
+
+Secondary compatibility:
+
+```text
+SPFx 1.21.x
+```
+
+Older SPFx:
+
+```text
+legacy compatibility / source export
+```
+
+Do NOT claim support for versions that have not passed conformance tests.
+
+---
+
+# 11. REAL MODULE GRAPH
+
+Build a real dependency graph.
+
+Example:
+
+```text
+EmployeeDirectoryWebPart.ts
         │
         ▼
-   JDDeliver SDK
+EmployeeDirectory.tsx
         │
-        ├── Detect target
-        ├── Normalize project
-        ├── Validate
-        ├── Scaffold
-        ├── Resolve dependencies
-        ├── Compile
-        ├── Bundle
-        ├── Generate manifests
-        ├── Generate provisioning
-        ├── Generate permissions
-        └── Package
-                │
-                ▼
-        READY-TO-USE OUTPUT
+ ┌──────┼─────────┐
+ ▼      ▼         ▼
+React  styles   EmployeeCard
+                  │
+                  ▼
+             GraphService
+                  │
+                  ▼
+          @microsoft/sp-http
+```
 
-The crucial design decision is that JDDeliver should not care what created the code.
+Detect:
 
-An AI could generate it. Lovable could generate it. Someone could hand-code it. Another application could construct it from JSON.
+* unresolved imports
+* circular dependencies
+* invalid package versions
+* missing externals
+* unsupported dynamic imports
 
-JDDeliver only cares about turning the input into a valid SharePoint deliverable.
+Expose graph information through the SDK.
 
-One universal API
+---
 
-I'd work toward something this simple:
+# 12. REAL PRODUCTION BUNDLING
 
-import { JDDeliver } from "https://cdn.jsdelivr.net/gh/.../jddeliver@v1/dist/jddeliver.js";
+Generate actual production bundles.
 
-const result = await JDDeliver.build({
-    target: "sharepoint",
-    type: "webpart",
+Pipeline:
 
-    project: {
-        name: "EmployeeDirectory",
-        framework: "react",
-        files: generatedFiles
-    }
-});
-
-await result.download();
-
-But the SDK should also accept a standardized specification:
-
-const result = await JDDeliver.build({
-    target: "sharepoint",
-
-    solution: {
-        name: "EmployeeDirectory",
-        version: "1.0.0"
-    },
-
-    components: [
-        {
-            type: "webpart",
-            name: "EmployeeDirectory",
-            framework: "react",
-            source: generatedReactCode
-        }
-    ],
-
-    permissions: [
-        "User.Read.All"
-    ]
-});
-
-And JDDeliver determines what needs to happen.
-
-AI should have an even simpler interface
-
-This becomes extremely useful for AI builders:
-
-const result = await JDDeliver.fromAI({
-    description: "Employee directory",
-    files: aiGeneratedFiles
-});
-
-JDDeliver analyzes:
-
-React detected
-       ↓
-WebPart detected
-       ↓
-Graph usage detected
-       ↓
-User.Read.All required
-       ↓
-SPFx target selected
-       ↓
-Generate scaffold
-       ↓
-Inject application code
-       ↓
-Compile
-       ↓
+```text
+TS/TSX
+   ↓
+esbuild-wasm
+   ↓
+Module Resolution
+   ↓
+SPFx External Resolution
+   ↓
+Tree Shaking
+   ↓
 Bundle
-       ↓
-Validate
-       ↓
-Package
-       ↓
-EmployeeDirectory.sppkg
+   ↓
+Minification
+   ↓
+Source Maps
+   ↓
+SPFx Asset
+```
 
-I'd actually call this part something like:
+Never package loose TypeScript or unbundled modules and call them production assets.
 
-JDDeliver.analyze()
+---
 
-rather than tying it specifically to AI.
+# 13. MATCH MODERN SPFX MODULE OUTPUT
 
-That keeps the SDK useful outside AI.
+Study Microsoft's current SPFx Webpack output carefully.
 
-Three input modes
+Implement the module format and loader behavior required by SharePoint.
 
-This is important.
+Where SPFx requires AMD-compatible output or specific loader metadata, generate it correctly.
 
-1. Specification
+Do NOT assume:
 
-Best for AI.
+```text
+normal browser ESM === valid SPFx bundle
+```
 
-await JDDeliver.build(spec);
-2. Files
+Create an explicit:
 
-An application gives JDDeliver files:
+```ts
+SPFxBundleAdapter
+```
 
-await JDDeliver.build({
-    files: {
-        "App.tsx": "...",
-        "styles.css": "..."
+that transforms/structures browser compiler output into the format required by the targeted SPFx runtime.
+
+---
+
+# 14. REACT SUPPORT
+
+Support production React Web Parts.
+
+Example source:
+
+```tsx
+import * as React from "react";
+
+export interface IEmployeeDirectoryProps {
+    title: string;
+}
+
+export default class EmployeeDirectory
+    extends React.Component<IEmployeeDirectoryProps> {
+
+    public render(): React.ReactElement {
+        return (
+            <section>
+                <h1>{this.props.title}</h1>
+            </section>
+        );
     }
+}
+```
+
+This must survive the entire compiler pipeline and actually render in SharePoint.
+
+Test both:
+
+```text
+React class components
+React functional components
+hooks where supported
+```
+
+---
+
+# 15. CSS AND SCSS
+
+Support:
+
+```text
+.css
+.module.css
+.scss
+.module.scss
+```
+
+Use a browser-compatible Sass compiler.
+
+Support:
+
+```ts
+import styles from "./EmployeeDirectory.module.scss";
+```
+
+Generate deterministic CSS module mappings.
+
+Example:
+
+```ts
+styles.container
+```
+
+must resolve correctly in the resulting runtime bundle.
+
+---
+
+# 16. STATIC ASSETS
+
+Support imports of appropriate assets:
+
+```text
+PNG
+JPG
+JPEG
+GIF
+SVG
+JSON
+fonts
+```
+
+Implement configurable behavior:
+
+```text
+inline
+bundle
+external
+```
+
+Validate final asset references.
+
+---
+
+# 17. MANIFEST COMPILER
+
+Create:
+
+```ts
+SPFxManifestCompiler
+```
+
+Generate real manifests for:
+
+## Web Parts
+
+## Application Customizers
+
+## Field Customizers
+
+## ListView Command Sets
+
+## Adaptive Card Extensions
+
+Support:
+
+* GUIDs
+* aliases
+* component type
+* version
+* manifest version
+* loader configuration
+* preconfigured entries
+* supported hosts
+* properties
+* icons
+* descriptions
+* localized strings
+
+Validate manifests against the appropriate schemas where possible.
+
+---
+
+# 18. STABLE IDENTITIES
+
+Project IDs and component GUIDs must persist.
+
+Do not regenerate GUIDs on every build.
+
+Example:
+
+```text
+Project
+   solutionId
+
+WebPart
+   componentId
+
+Extension
+   componentId
+```
+
+Store these in the project IR.
+
+Reproducible builds require stable IDs.
+
+---
+
+# 19. LOCALIZATION
+
+Implement proper localization.
+
+Support:
+
+```text
+en-us.js
+default.js
+.resx where required
+```
+
+Support component localization imports.
+
+Do not generate fake empty localization resources merely to satisfy package structure.
+
+---
+
+# 20. FEATURE FRAMEWORK COMPILER
+
+Implement:
+
+```ts
+SPFxFeatureCompiler
+```
+
+Generate required:
+
+```text
+Feature.xml
+Elements.xml
+```
+
+Support appropriate elements including:
+
+```text
+ClientSideComponentInstance
+CustomAction
+Field
+List
+ListInstance
+```
+
+Only generate Feature Framework artifacts when required.
+
+---
+
+# 21. SHAREPOINT LIST PROVISIONING
+
+Allow projects to define:
+
+```ts
+await designer.addList({
+    title: "Employees",
+    template: 100,
+    fields: [...]
 });
-3. Existing project
+```
 
-Drop an existing project into it:
+Translate supported definitions into correct SharePoint Feature Framework artifacts.
 
-const project = await JDDeliver.import(file);
+Validate fields and schema.
 
-const result = await project.build();
+---
 
-Supporting:
+# 22. MICROSOFT GRAPH PERMISSIONS
 
-SPFx project ZIP
-Source directory
-.sppkg
-JDDeliver JSON
+Support:
 
-would make the engine far more universal.
+```ts
+graph: [
+    "User.Read.All",
+    "Group.Read.All"
+]
+```
 
-Package everything
+Generate appropriate SPFx permission requests.
 
-I'd define "everything" as multiple output targets.
+Implement:
 
-JDDeliver.targets
+```ts
+GraphPermissionAnalyzer
+```
 
-could eventually contain:
+Analyze source for:
 
-sharepoint.spfx.webpart
-sharepoint.spfx.extension
-sharepoint.spfx.applicationCustomizer
-sharepoint.spfx.fieldCustomizer
-sharepoint.spfx.commandSet
-sharepoint.spfx.formCustomizer
-sharepoint.spfx.library
-sharepoint.ace
+* Microsoft Graph endpoints
+* MSGraphClient usage
+* known Graph resources
 
-sharepoint.theme
-sharepoint.siteScript
-sharepoint.siteDesign
-sharepoint.listFormatting
-sharepoint.columnFormatting
-sharepoint.formFormatting
+Suggest required permissions.
 
-sharepoint.provisioning
-sharepoint.solution
+Never automatically approve permissions.
+
+---
+
+# 23. PACKAGE-SOLUTION COMPILER
+
+Create:
+
+```ts
+SPFxPackageSolutionCompiler
+```
+
+Consume project configuration and generate the package metadata required by SharePoint.
+
+Support appropriate settings such as:
+
+```text
+solution ID
+solution name
+version
+includeClientSideAssets
+skipFeatureDeployment
+isolated domain where applicable
+webApiPermissionRequests
+features
+```
+
+Validate combinations against the target SPFx version.
+
+---
+
+# 24. BUILD A REAL OPC PACKAGE
+
+Implement:
+
+```ts
+SPFxOPCPackager
+```
+
+The `.sppkg` must be a correct Open Packaging Convention package.
+
+Generate correct:
+
+```text
+[Content_Types].xml
+
+_rels/
+    .rels
+
+package/
+feature/
+manifest/
+assets/
+relationships
+```
+
+according to the structure expected by SharePoint.
+
+Use a mature browser ZIP implementation such as:
+
+```text
+fflate
+```
+
+or:
+
+```text
+JSZip
+```
+
+Do NOT confuse ZIP creation with SPPKG creation.
+
+ZIP is merely the final container.
+
+---
+
+# 25. OPC RELATIONSHIP ENGINE
+
+Implement:
+
+```ts
+OPCRelationshipBuilder
+```
+
+It must understand:
+
+```text
+parts
+content types
+relationships
+relationship IDs
+targets
+target modes
+XML namespaces
+```
+
+Validate that every relationship target exists.
+
+Detect orphan package parts.
+
+Detect missing required relationships.
+
+---
+
+# 26. CONTENT TYPE GENERATOR
+
+Generate:
+
+```text
+[Content_Types].xml
+```
+
+from actual package contents.
+
+Do not use one hard-coded file for every project.
+
+Every included package part must have the correct content type.
+
+---
+
+# 27. DEPLOYMENT MODES
+
+Support modern SPFx deployment options.
+
+At minimum:
+
+## includeClientSideAssets = true
+
+Allow SharePoint to host client-side assets where supported.
+
+Also architect for:
+
+## CDN-hosted assets
+
+Support:
+
+```text
+Microsoft 365 CDN
+Azure CDN
+custom CDN
+```
+
+Production builds must reject accidental references to:
+
+```text
+localhost
+127.0.0.1
+blob:
+development servers
+temporary preview URLs
+```
+
+unless explicitly operating in development mode.
+
+---
+
+# 28. COMPLETE SOURCE PROJECT EXPORT
+
+CODBSharePoint should produce BOTH:
+
+```text
+production .sppkg
+```
+
+and optionally:
+
+```text
+complete editable SPFx source project
+```
+
+Export:
+
+```text
+/project
+│
+├── package.json
+├── tsconfig.json
+├── config/
+├── src/
+├── sharepoint/
+├── README.md
+└── CODBSharePoint metadata
+```
+
+Where appropriate, exported source should be capable of being adapted or built using Microsoft's official tooling.
+
+CODBSharePoint must not create vendor lock-in.
+
+---
+
+# 29. DESIGNER API
+
+Keep and expand:
+
+```ts
+const designer =
+    sdk.designer({
+        storage: "indexeddb"
+    });
+```
+
+Support:
+
+```ts
+await designer.create();
+
+await designer.addWebPart();
+await designer.addExtension();
+await designer.addACE();
+
+await designer.addList();
+
+await designer.addGraphPermission();
+
+await designer.writeFile();
+
+await designer.save();
+
+await designer.validate();
+
+await designer.build();
+
+await designer.exportSource();
+```
+
+---
+
+# 30. AI TOOL API
+
+Make CODBSharePoint especially suitable for AI-generated SharePoint applications.
+
+Example:
+
+```ts
+const tools = sdk.tools({
+    name: "EmployeeDirectory"
+});
+
+const project =
+    await tools.createProject({
+        spfxVersion: "1.22"
+    });
+
+await tools.createWebPart({
+    name: "EmployeeDirectory",
+    framework: "react"
+});
+
+await tools.writeSource({
+    path:
+      "src/webparts/employeeDirectory/components/EmployeeDirectory.tsx",
+
+    content:
+      generatedReactCode
+});
+
+await tools.addGraphPermission(
+    project,
+    "User.Read.All"
+);
+
+const result =
+    await tools.compile(project);
+```
+
+Return structured diagnostics suitable for AI correction.
+
+Example:
+
+```json
+{
+    "code": "SPFX_UNRESOLVED_IMPORT",
+    "severity": "error",
+    "file": "EmployeeDirectory.tsx",
+    "line": 17,
+    "module": "@example/missing",
+    "suggestion": "Add dependency or correct import."
+}
+```
+
+---
+
+# 31. COMPILER PIPELINE
+
+Implement explicit compiler stages:
+
+```text
+Project Specification
+
+        ↓
+
+Normalize
+
+        ↓
+
+Project IR
+
+        ↓
+
+Virtual File System
+
+        ↓
+
+Dependency Resolution
+
+        ↓
+
+TypeScript Diagnostics
+
+        ↓
+
+esbuild-wasm
+
+        ↓
+
+TS / TSX / JSX Compilation
+
+        ↓
+
+Sass / CSS Compilation
+
+        ↓
+
+SPFx External Resolution
+
+        ↓
+
+Production Bundling
+
+        ↓
+
+SPFx Bundle Adapter
+
+        ↓
+
+Manifest Compiler
+
+        ↓
+
+Localization Compiler
+
+        ↓
+
+Feature Framework Compiler
+
+        ↓
+
+Package Solution Compiler
+
+        ↓
+
+OPC Relationship Builder
+
+        ↓
+
+SPPKG Packager
+
+        ↓
+
+Structural Validator
+
+        ↓
+
+SPFx Conformance Validator
+
+        ↓
+
+Security Scanner
+
+        ↓
+
+REAL .SPPKG
+```
+
+---
+
+# 32. WEB WORKERS
+
+Compilation must not freeze the application UI.
+
+Architecture:
+
+```text
+Main UI
+
+   ↓
+
+Build Coordinator
+
+   ↓
+
+Compiler Worker
+   ├─ TypeScript
+   ├─ esbuild-wasm
+   └─ dependency resolution
+
+   ↓
+
+Style Worker
+   └─ Sass
+
+   ↓
+
+Package Worker
+   ├─ XML
+   ├─ OPC
+   └─ ZIP
+
+   ↓
+
+BuildResult
+```
+
+Use transferable `ArrayBuffer`s where appropriate.
+
+---
+
+# 33. PROGRESS API
+
+Provide:
+
+```ts
+const result =
+    await sdk.build(spec, {
+        mode: "production",
+
+        onProgress(event) {
+            console.log(
+                event.stage,
+                event.percent
+            );
+        }
+    });
+```
+
+Stages should include:
+
+```text
+initializing
+resolving
+typechecking
+compiling
+styles
+bundling
+manifests
+features
+packaging
+validating
+complete
+```
+
+---
+
+# 34. INDEXEDDB BUILD CACHE
+
+Cache expensive artifacts:
+
+```text
+esbuild WASM
+TypeScript libraries
+Sass compiler
+dependency packages
+SPFx metadata
+compiled modules
+build artifacts
+```
+
+Use content hashes for cache invalidation.
+
+Incremental builds should reuse unchanged modules.
+
+---
+
+# 35. OFFLINE BUILD SUPPORT
+
+Once required compilers and dependencies are cached:
+
+```text
+Internet disconnected
+        ↓
+Open CODBSharePoint project
+        ↓
+Compile
+        ↓
+Bundle
+        ↓
+Package
+        ↓
+SPPKG
+```
+
+must remain possible.
+
+Integrate with existing PWA support.
+
+---
+
+# 36. PRODUCTION VALIDATOR
+
+Implement:
+
+```ts
+SPFxProductionValidator
+```
+
+Check at minimum:
+
+```text
+TypeScript diagnostics
+JavaScript syntax
+unresolved imports
+SPFx externals
+React compatibility
+bundle existence
+bundle integrity
+manifest schemas
+manifest bundle references
+component GUIDs
+duplicate GUIDs
+package-solution
+Graph permissions
+Feature.xml
+Elements.xml
+localization
+CSS
+assets
+OPC content types
+OPC relationships
+orphan parts
+missing parts
+development URLs
+SPFx version compatibility
+security findings
+```
+
+Production build must fail on critical errors.
+
+---
+
+# 37. DO NOT FAKE BUILD SUCCESS
+
+This requirement is absolute.
+
+This is NOT success:
+
+```text
+ZIP generated
+```
+
+This is NOT success:
+
+```text
+.sppkg filename generated
+```
+
+This is NOT success:
+
+```text
+XML files exist
+```
+
+Success means:
+
+```text
+Source valid
++
+TypeScript valid
++
+TSX/JSX compiled
++
+Dependencies resolved
++
+Production bundle generated
++
+SPFx externals resolved
++
+Manifests valid
++
+Features valid
++
+OPC valid
++
+SPPKG valid
++
+Production validation passed
+```
+
+Only then:
+
+```ts
+result.success === true
+```
+
+---
+
+# 38. BUILD RESULT
+
+Implement:
+
+```ts
+interface BuildResult {
+
+    success: boolean;
+
+    sppkg?: Uint8Array;
+
+    sourceProject?: Uint8Array;
+
+    files: VirtualFile[];
+
+    diagnostics: Diagnostic[];
+
+    validation: ValidationResult;
+
+    security: SecurityResult;
+
+    bundleAnalysis: BundleAnalysis;
+
+    permissions: PermissionAnalysis;
+
+    dependencyGraph: DependencyGraph;
+
+    metadata: {
+
+        solutionId: string;
+
+        version: string;
+
+        spfxVersion: string;
+
+        compilerVersion: string;
+
+        buildTime: number;
+
+        reproducible: boolean;
+    };
+}
+```
+
+---
+
+# 39. CAPABILITY REPORTING
+
+Implement:
+
+```ts
+sdk.capabilities();
+```
+
+Example:
+
+```json
+{
+    "browserCompiler": true,
+    "esbuildWasm": true,
+    "typescriptChecking": true,
+    "tsx": true,
+    "jsx": true,
+    "react": true,
+    "sass": true,
+    "cssModules": true,
+    "productionBundling": true,
+    "spfxExternals": true,
+    "spfx122": true,
+    "sppkg": true,
+    "webParts": true,
+    "applicationCustomizers": true,
+    "fieldCustomizers": true,
+    "commandSets": true,
+    "ace": true,
+    "graphPermissions": true,
+    "featureFramework": true,
+    "offline": true
+}
+```
+
+Only return `true` for capabilities backed by tests.
+
+---
+
+# 40. MICROSOFT REFERENCE BUILD FIXTURES
+
+This is mandatory.
+
+Create reference projects built with Microsoft's official SPFx 1.22+ toolchain.
+
+Include:
+
+```text
+01 Vanilla Web Part
+
+02 React Web Part
+
+03 React + SCSS Web Part
+
+04 Microsoft Graph Web Part
+
+05 Multiple Web Parts
+
+06 Application Customizer
+
+07 Field Customizer
+
+08 ListView Command Set
+
+09 Adaptive Card Extension
+
+10 Feature Framework
+
+11 SharePoint List Provisioning
+
+12 Multiple Components + Graph
+```
+
+Store normalized reference package structures as fixtures.
+
+---
+
+# 41. DIFFERENTIAL CONFORMANCE TESTING
+
+For every reference:
+
+```text
+SOURCE
+  │
+  ├───────────────┐
+  ▼               ▼
+
+Microsoft        CODB
+Heft/Webpack     Compiler
+
+  │               │
+  ▼               ▼
+
+Microsoft        CODB
+SPPKG            SPPKG
+
+  │               │
+  └───────┬───────┘
+          ▼
+
+   Extract Packages
+
+          ↓
+
+ Normalize Metadata
+
+          ↓
+
+Semantic Comparison
+```
+
+Compare:
+
+* manifests
+* relationships
+* feature definitions
+* component definitions
+* package metadata
+* asset references
+* Graph permissions
+* content types
+* bundle loading assumptions
+
+Do NOT require byte-identical packages.
+
+Require semantic compatibility.
+
+---
+
+# 42. ROUND-TRIP TESTS
+
+Support:
+
+```text
+SPFx Source
+    ↓
+CODB Import
+    ↓
+IR
+    ↓
+Modify
+    ↓
+Build
+    ↓
+SPPKG
+```
+
+Also test:
+
+```text
+SPPKG
+ ↓
+Inspect
+ ↓
+IR
+ ↓
+Modify
+ ↓
+Rebuild
+```
+
+Do not claim complete import support for data that cannot actually be reconstructed from a compiled package.
+
+---
+
+# 43. REAL SHAREPOINT ONLINE TESTING
+
+The ultimate test is SharePoint, not CODBSharePoint validating its own homework.
+
+Create deployment integration tests/checklists.
+
+A release candidate must be tested by:
+
+```text
+Generate SPPKG
+      ↓
+Upload to SharePoint App Catalog
+      ↓
+SharePoint recognizes package
+      ↓
+Deploy
+      ↓
+Install application
+      ↓
+Add component
+      ↓
+Component loads
+      ↓
+React renders
+      ↓
+CSS renders
+      ↓
+Graph permissions appear
+      ↓
+Graph works after approval
+      ↓
+No critical console errors
+```
+
+Record:
+
+```text
+CODBSharePoint version
+SPFx target
+SharePoint environment
+component type
+test date
+result
+```
+
+---
+
+# 44. SUPPORT MULTIPLE COMPONENT TYPES
+
+Production support should ultimately include:
+
+```text
+SPFx Web Parts
+
+React Web Parts
+
+Vanilla Web Parts
+
+Application Customizers
+
+Field Customizers
+
+ListView Command Sets
+
+Adaptive Card Extensions
+
+Microsoft Graph-enabled components
+
+SharePoint REST-enabled components
+
+Feature Framework provisioning
+```
+
+Implement incrementally.
+
+Do not mark unsupported components as supported.
+
+---
+
+# 45. BUILD MODES
+
+Support:
+
+```ts
+sdk.build(project, {
+    mode: "development"
+});
+```
+
+and:
+
+```ts
+sdk.build(project, {
+    mode: "production"
+});
+```
+
+Development may preserve:
+
+* source maps
+* readable bundles
+* additional diagnostics
+
+Production should enable:
+
+* optimization
+* minification
+* strict validation
+* production URLs
+* package validation
+* security validation
+
+---
+
+# 46. REPRODUCIBLE BUILDS
+
+Given identical:
+
+```text
+source
+configuration
+dependency versions
+SPFx version
+compiler version
+```
+
+build output should be functionally deterministic.
+
+Store GUIDs instead of regenerating them.
+
+Normalize timestamps where practical.
+
+Record dependency versions in build metadata.
+
+---
+
+# 47. SECURITY
+
+Expand the existing scanner.
+
+Detect:
+
+```text
+API keys
+secrets
+passwords
+tokens
+private keys
+eval()
+new Function()
+dangerouslySetInnerHTML
+unsafe DOM injection
+XSS
+HTTP endpoints
+unexpected external domains
+credential exposure
+development URLs
+```
+
+Provide severity:
+
+```text
+error
+warning
+info
+```
+
+---
+
+# 48. PUBLIC COMPILER API
+
+Expose lower-level compiler APIs for advanced consumers.
+
+Example:
+
+```ts
+sdk.compiler.initialize();
+
+sdk.compiler.transform();
+
+sdk.compiler.bundle();
+
+sdk.compiler.typecheck();
+
+sdk.compiler.resolve();
+
+sdk.compiler.graph();
+
+sdk.compiler.compileStyles();
+```
+
+And SPFx-specific APIs:
+
+```ts
+sdk.spfx.generateManifest();
+
+sdk.spfx.generateFeatures();
+
+sdk.spfx.resolveExternals();
+
+sdk.spfx.packageSolution();
+
+sdk.spfx.validate();
+```
+
+And packaging APIs:
+
+```ts
+sdk.package.createOPC();
+
+sdk.package.createSPPKG();
+
+sdk.package.inspectSPPKG();
+
+sdk.package.validateSPPKG();
+```
+
+---
+
+# 49. SIMPLE HIGH-LEVEL API
+
+Despite all internal complexity, consuming CODBSharePoint should remain simple.
+
+Example:
+
+```ts
+import { CODBSharePoint }
+    from "codbsharepoint";
+
+const sdk =
+    new CODBSharePoint();
+
+await sdk.initialize();
+
+const result =
+    await sdk.build({
+
+        name:
+            "EmployeeDirectory",
+
+        spfxVersion:
+            "1.22",
+
+        framework:
+            "react",
+
+        components: [{
+
+            type:
+                "webpart",
+
+            name:
+                "EmployeeDirectory",
+
+            displayName:
+                "Employee Directory",
+
+            source:
+                generatedSource
+        }],
+
+        graph: [
+            "User.Read.All"
+        ]
+
+    }, {
+
+        mode:
+            "production",
+
+        validation:
+            "strict"
+    });
+
+if (!result.success) {
+
+    console.error(
+        result.diagnostics
+    );
+
+    throw new Error(
+        "SPFx build failed"
+    );
+}
+```
 
 Then:
 
-await JDDeliver.build({
-    target: "sharepoint.spfx.webpart",
-    ...
-});
+```ts
+const blob =
+    new Blob(
+        [result.sppkg!],
+        {
+            type:
+                "application/octet-stream"
+        }
+    );
+```
 
-returns .sppkg.
+The returned package should be suitable for:
 
-While:
+```text
+SharePoint Online
+      ↓
+App Catalog
+      ↓
+Upload .sppkg
+      ↓
+Deploy
+      ↓
+Install
+      ↓
+Use
+```
 
-await JDDeliver.build({
-    target: "sharepoint.theme",
-    ...
-});
+---
 
-returns the appropriate theme JSON.
+# 50. KEEP CODBSHAREPOINT HEADLESS
 
-And a full solution:
+CODBSharePoint is an SDK/compiler.
 
-await JDDeliver.build({
-    target: "sharepoint.solution",
-    ...
-});
+Do NOT make the SDK dependent upon one UI.
 
-could return:
+Consumers may include:
 
-EmployeePortal/
-│
-├── EmployeePortal.sppkg
-├── provisioning/
-│   ├── lists.json
-│   ├── columns.json
-│   ├── content-types.json
-│   └── site-script.json
-│
-├── permissions/
-│   └── graph.json
-│
-├── source/
-│   └── ...
-│
-└── deployment.json
-deployment.json could be particularly valuable
+```text
+Lovable
+React
+Vue
+JavaScript
+browser applications
+AI agents
+visual builders
+internal City applications
+PWA applications
+future CLI wrapper
+```
 
-JDDeliver shouldn't merely hand back files.
+Architecture:
 
-It should explain what to do with them:
+```text
+              APPLICATIONS
 
-{
-  "solution": "EmployeePortal",
-  "status": "ready",
-  "artifacts": [
-    {
-      "file": "EmployeePortal.sppkg",
-      "destination": "SharePoint App Catalog"
-    }
-  ],
-  "permissions": [
-    {
-      "resource": "Microsoft Graph",
-      "permission": "User.Read.All",
-      "requiresAdminApproval": true
-    }
-  ],
-  "provisioning": [
-    {
-      "type": "list",
-      "name": "Employees"
-    }
-  ]
-}
+ Lovable    React    Vue    AI Agent
+     \        |       |        /
+      \       |       |       /
+             SDK API
+                │
+                ▼
+        CODBSharePoint
+                │
+    ┌───────────┼────────────┐
+    ▼           ▼            ▼
+Compiler     Designer      Tools
+    │           │            │
+    └───────────┼────────────┘
+                ▼
+              IR/VFS
+                ▼
+         TypeScript Checker
+                ▼
+          esbuild-wasm
+                ▼
+              Sass
+                ▼
+         SPFx Resolver
+                ▼
+         SPFx Bundler
+                ▼
+       Manifest Compiler
+                ▼
+        Feature Compiler
+                ▼
+      Package-Solution
+                ▼
+          OPC Packager
+                ▼
+        SPPKG Validator
+                ▼
+           REAL SPPKG
+```
 
-Now your AI application can tell the user:
+---
 
-BUILD COMPLETE
+# 51. OPTIONAL FUTURE CLI
 
-✓ Source validated
-✓ React compiled
-✓ SPFx generated
-✓ Graph configuration generated
-✓ Manifest validated
-✓ SPPKG validated
+Architect the SDK so the exact same compiler can eventually run from:
 
-Deployment requirements
-
-⚠ Administrator approval:
-  Microsoft Graph → User.Read.All
-
-Files:
-
-EmployeePortal.sppkg
-EmployeePortal-source.zip
-deployment.json
-
-That is far more useful than merely producing a ZIP.
-
-Keep the SDK headless
-
-This is one of the biggest architectural decisions I'd make.
-
-Don't put the actual builder UI inside JDDeliver.
-
-JDDeliver should be:
-
-INPUT → ANALYZE → GENERATE → COMPILE → VALIDATE → PACKAGE
-
-Your apps provide the interfaces.
-
-Therefore all of these could use exactly the same engine:
-
-ITAV SharePoint Designer
-          │
-          ├──────────┐
-Lovable AI Builder   │
-          │          │
-React App ───────────┤
-                     │
-Vue App ─────────────┤
-                     ├── JDDeliver
-Next.js ─────────────┤
-                     │
-Vanilla JS ──────────┤
-                     │
-AI Agent ────────────┘
-
-That separation is what could make this genuinely reusable.
-
-Browser and Node compatibility
-
-Even though browser-only operation is important, I'd architect the core so it can eventually execute in:
-
+```text
 Browser
-Web Worker
 Node
 Bun
 Deno
-CI/CD
-GitHub Actions
+CLI
+```
 
-For example:
+Example future command:
 
-const result = await JDDeliver.build(spec, {
-    runtime: "browser"
-});
+```bash
+codbsharepoint build
+```
 
-The browser runtime uses:
+could simply call the same core:
 
-IndexedDB
-Blob
-ArrayBuffer
-Web Workers
-WASM
-browser ZIP
+```ts
+sdk.build(project);
+```
 
-Node could use native filesystem capabilities.
+Do not create separate compiler implementations.
 
-Same SDK API. Different adapters.
+Use adapters for:
 
-That opens another interesting path later:
+```text
+filesystem
+storage
+workers
+package resolution
+```
 
-git push
-   ↓
-GitHub Action
-   ↓
-JDDeliver
-   ↓
-Validate
-   ↓
-Compile
-   ↓
-SPPKG
-   ↓
-GitHub Release
+while sharing the core compiler.
 
-Your browser-first design doesn't need to become a browser-only prison.
+---
 
-Make validation a first-class feature
+# 52. DO NOT REIMPLEMENT WHAT OPEN SOURCE ALREADY SOLVES
 
-I'd expose:
+Use mature open-source components where appropriate.
 
-const report = await JDDeliver.validate(project);
+Preferred architecture:
 
-Returning something structured:
+```text
+Compilation
+    esbuild-wasm
 
-{
-    valid: false,
+Type checking
+    TypeScript compiler
 
-    errors: [...],
+SCSS
+    browser-compatible Sass
 
-    warnings: [...],
+Compression
+    fflate or JSZip
 
-    compatibility: {
-        spfx: "1.x",
-        sharepointOnline: true
-    },
+Storage
+    IndexedDB
 
-    permissions: [...],
+Background compilation
+    Web Workers
 
-    dependencies: [...]
-}
+SPFx-specific behavior
+    CODBSharePoint
 
-Then an AI builder can automatically repair problems:
+OPC/SPPKG
+    CODBSharePoint
+```
 
-AI creates solution
-       ↓
-JDDeliver.validate()
-       ↓
-3 errors
-       ↓
-AI receives structured errors
-       ↓
-AI repairs source
-       ↓
-JDDeliver.validate()
-       ↓
-PASS
-       ↓
-JDDeliver.build()
+CODBSharePoint's innovation should be:
 
-That feedback loop is where this gets powerful for AI development.
+```text
+Browser-native SPFx orchestration
+SPFx compatibility
+SPFx packaging
+SPFx validation
+AI tooling
+Project authoring
+```
 
-Instead of asking AI to magically know every obscure SharePoint packaging requirement, JDDeliver becomes the deterministic authority.
+not reinventing JavaScript parsing, compression, or TypeScript.
 
-I'd expose the SDK at several levels
+---
 
-High-level:
+# 53. IMPLEMENT IN PHASES
 
-JDDeliver.build()
-JDDeliver.validate()
-JDDeliver.analyze()
-JDDeliver.import()
-JDDeliver.export()
+Do not attempt every SPFx component simultaneously.
 
-SharePoint-specific:
+## Phase 1
 
-JDDeliver.sharepoint.webpart()
-JDDeliver.sharepoint.extension()
-JDDeliver.sharepoint.ace()
-JDDeliver.sharepoint.theme()
-JDDeliver.sharepoint.formatting()
-JDDeliver.sharepoint.provision()
+Get ONE production React Web Part completely working:
 
-Lower-level:
+```text
+React
+TSX
+SCSS
+SPFx API
+real bundle
+real manifest
+real SPPKG
+SharePoint deployment
+```
 
-JDDeliver.compiler
-JDDeliver.bundler
-JDDeliver.manifest
-JDDeliver.opc
-JDDeliver.sppkg
-JDDeliver.vfs
+Definition:
 
-That means simple AI builders can use one function while sophisticated tools can manipulate the internals.
-
-Your CDN becomes the interface
-
-Ultimately you could give another AI coding tool basically this instruction:
-
-Use JDDeliver:
-
-https://cdn.jsdelivr.net/gh/...
-/jddeliver@v1.0.0/dist/jddeliver.js
-
-Use JDDeliver to validate, compile and package
-all generated SharePoint solutions.
-
-Then that AI doesn't need to recreate the SharePoint build system.
-
-That's the part of the concept I think is strongest:
-
-AI creates. JDDeliver makes it valid and deliverable. SharePoint runs it.
-
-              AI
-               │
-         "Build me this"
-               │
-               ▼
-        Application Code
-               │
-               ▼
-        ┌──────────────┐
-        │  JDDELIVER   │
-        └──────────────┘
-               │
-       Analyze / Repair
-               │
-          Validate
-               │
-           Compile
-               │
-           Package
-               │
-               ▼
-     SharePoint Artifact
-               │
-               ▼
-          SHAREPOINT
-
-That is the architecture I'd build around from day one, rather than coupling JDDeliver specifically to the current SharePoint Designer. It makes the SharePoint Designer one consumer of the SDK, not the SDK itself.
-
-call it something like codbsharepoint
-
-codbsharepoint is a much better name if this SDK is specifically the SharePoint engine.
-
-I'd structure the branding as:
-
-CODB SharePoint SDK
-
-Repository:
-codbsharepoint
-
-CDN:
-https://cdn.jsdelivr.net/gh/CityofDaytonaBeach/CODBSharePoint@latest/dist/codbsharepoint.mjs
-
-Global:
+```text
 CODBSharePoint
+     ↓
+EmployeeDirectory.sppkg
+     ↓
+SharePoint App Catalog
+     ↓
+Deploy
+     ↓
+Add Employee Directory
+     ↓
+WORKS
+```
 
-ES Module:
-import { CODBSharePoint } from ".../codbsharepoint.mjs";
+Nothing else matters until this passes.
 
-Then the API reads naturally:
+## Phase 2
 
-const result = await CODBSharePoint.build({
-  type: "webpart",
-  name: "EmployeeDirectory",
-  framework: "react",
-  files
-});
+Add:
 
-result.download();
+```text
+Graph
+multiple web parts
+CSS modules
+assets
+localization
+```
 
-And you can organize it around:
+## Phase 3
 
-CODBSharePoint.build()
-CODBSharePoint.validate()
-CODBSharePoint.analyze()
-CODBSharePoint.import()
+Add:
 
-CODBSharePoint.spfx
-CODBSharePoint.webparts
-CODBSharePoint.extensions
-CODBSharePoint.ace
-CODBSharePoint.provisioning
-CODBSharePoint.formatting
-CODBSharePoint.themes
-CODBSharePoint.graph
-CODBSharePoint.rest
-CODBSharePoint.compiler
-CODBSharePoint.sppkg
+```text
+Application Customizers
+Field Customizers
+Command Sets
+```
 
-That also fits nicely alongside your existing CODB browser libraries rather than giving this one an unrelated product name.
+## Phase 4
 
-For production, I'd publish both:
+Add:
 
-@main
-@v1.0.0
+```text
+ACE
+Feature Framework
+list provisioning
+advanced deployment
+```
 
-with applications pinned to @v1.0.0 and @main reserved for development. Humans do enjoy discovering breaking changes at deployment time, so version pinning deprives them of that particular thrill.
+## Phase 5
 
-what else can i add to make this exceptional and nothing like this on the web
+Add:
 
-Yes. If you want CODBSharePoint to be exceptional, I would push it beyond "browser SPFx packager" into a SharePoint compiler, compatibility engine, simulator, repair system, and AI toolchain.
+```text
+legacy SPFx compatibility
+advanced import
+round-trip editing
+```
 
-I checked the current landscape and Microsoft's latest SPFx direction. The timing is particularly interesting because SPFx 1.22 moved new projects to Heft + Webpack, with Microsoft explicitly moving toward a more configurable/plugin-oriented build architecture.
+---
 
-I would build toward these differentiators:
+# 54. TEST-DRIVEN IMPLEMENTATION
 
-True browser-native SPPKG compiler. Make the headline capability: source → compile → bundle → manifests → OPC → .sppkg entirely client-side. No Node install, Yeoman, Heft CLI, Gulp, Docker, VPS, or local SharePoint dev environment. Microsoft currently documents production SPFx as heft build --production followed by heft package-solution --production; CODBSharePoint would reproduce the required result through its own browser runtime.
-SPFx compatibility engine. Don't merely generate files. Maintain knowledge of SPFx versions, React/TypeScript compatibility, schemas, manifests, supported APIs, dependencies, deprecated functionality, and build behavior. Then expose something like CODBSharePoint.compatibility.check(project). This becomes particularly valuable as Microsoft transitions from the older Gulp architecture to Heft.
-AI Repair Loop. This could be one of your strongest features. AI generates code → CODBSharePoint compiles it → compiler produces structured errors → AI repairs only the affected files → compile again → continue until validation passes → generate SPPKG. The AI doesn't have to "know" whether its package works. Your SDK becomes the authority.
-SharePoint emulator/sandbox. Build a browser-side mock implementation of WebPartContext, PageContext, SPHttpClient, MSGraphClient, themes, property panes, lists, users, Graph responses and extension contexts. Then a Lovable-generated web part could actually run in an iframe before anyone touches SharePoint.
-SPPKG reverse engineering/import. Let users drop an existing .sppkg onto the page and get a structured representation of its components, manifests, permissions, features, assets, dependencies and compatibility. Then support SPPKG → editable project → modify → rebuild SPPKG.
-Automatic modernization. Import an old SPFx project and run CODBSharePoint.modernize(project). It could identify the existing SPFx/toolchain version, deprecated packages and configuration, then generate an upgrade plan or transform it. This is especially timely because Microsoft now documents migration from Gulp to Heft and even points to tooling for automatic project upgrade analysis.
-Universal SharePoint Intermediate Representation. This is probably the architectural feature I'd prioritize most. Don't make React, SPFx or AI-generated files your internal source of truth. Define a CODBSharePoint IR:
-{
-  "solution": "EmployeePortal",
-  "components": [],
-  "lists": [],
-  "libraries": [],
-  "fields": [],
-  "contentTypes": [],
-  "pages": [],
-  "extensions": [],
-  "permissions": [],
-  "graph": [],
-  "themes": [],
-  "formatting": [],
-  "provisioning": []
-}
+For every compiler feature:
 
-Then everything translates through it:
+```text
+Failing fixture
+      ↓
+Implement
+      ↓
+Unit test
+      ↓
+Integration test
+      ↓
+Conformance test
+      ↓
+Real SharePoint test where required
+```
 
-AI Prompt ─────────┐
-React Files ───────┤
-Vue/JS ────────────┤
-SPFx ZIP ──────────┤
-SPPKG ─────────────┼──> CODBSharePoint IR
-Visual Designer ───┤           │
-JSON ──────────────┘           ▼
-                         Target Compiler
-                              │
-             ┌────────────────┼────────────────┐
-             ▼                ▼                ▼
-           SPPKG            JSON          Source ZIP
+Never fix package problems by adding special-case hardcoded output for one fixture.
 
-That makes the project much more than a packaging library.
+The compiler must generalize.
 
-Permission intelligence. Analyze source code and tell the developer what Graph/SharePoint permissions are actually required. For example, if generated code calls users through Graph, CODBSharePoint could detect that and compare it against the solution's permission declarations. Graph permissions are a real deployment consideration for SPFx solutions.
-Security scanner. Before producing an SPPKG, scan generated code for unsafe DOM injection, exposed secrets, dangerous external URLs, excessive Graph permissions, questionable dependencies, insecure HTTP, problematic eval/dynamic execution, and tenant-wide deployment risks. AI-generated enterprise code desperately needs this. Humanity has already demonstrated that "the AI wrote it" is not a security strategy.
-Bundle intelligence. Analyze exactly what is entering the final bundle, show size by dependency, flag duplicated libraries and recommend externalization or lazy loading. Microsoft itself recommends examining production bundles and supports Webpack stats for this purpose.
-Then add a deployment manifest
+---
 
-Every build should produce more than:
+# 55. DEFINITION OF DONE
 
-EmployeePortal.sppkg
+CODBSharePoint V2 is NOT production ready until:
 
-It should produce:
+1. `esbuild-wasm` performs real browser compilation.
+2. TypeScript semantic checking works.
+3. TSX/JSX works.
+4. React renders after SharePoint deployment.
+5. SCSS/CSS Modules work.
+6. Internal imports resolve.
+7. Dependencies resolve.
+8. SPFx externals resolve correctly.
+9. Production bundles are generated.
+10. SPFx manifests are valid.
+11. Component GUIDs remain stable.
+12. Localization works.
+13. Feature Framework works where required.
+14. Package-solution generation works.
+15. OPC packaging is structurally correct.
+16. `[Content_Types].xml` is correct.
+17. OPC relationships are correct.
+18. `.sppkg` is generated browser-side.
+19. Strict production validation works.
+20. Security validation works.
+21. No GitHub build is required.
+22. No GitHub Action is required.
+23. No VPS is required.
+24. No backend compiler is required.
+25. No local Node installation is required.
+26. No local Gulp installation is required.
+27. No local Heft installation is required.
+28. No local Webpack installation is required.
+29. Microsoft reference fixtures pass semantic conformance testing.
+30. A CODB-generated React `.sppkg` has been uploaded successfully to a real SharePoint Online App Catalog.
+31. SharePoint recognizes the package.
+32. SharePoint deploys the package.
+33. The component can be added to a page.
+34. The component executes.
+35. React renders.
+36. Styles load.
+37. SPFx APIs work.
+38. Graph permissions work after administrator approval.
+39. Browser console contains no critical loader/manifest failures.
+40. All claimed capabilities have automated tests.
 
-EmployeePortal/
-├── EmployeePortal.sppkg
-├── source.zip
-├── deployment.json
-├── permissions.json
-├── security-report.json
-├── compatibility-report.json
-├── provisioning.json
-└── README.html
+---
 
-deployment.json could explain exactly what an AI application should do next:
+# FINAL REQUIREMENT
 
-{
-  "status": "ready",
-  "artifact": "EmployeePortal.sppkg",
-  "destination": "Tenant App Catalog",
-  "requiresAdmin": true,
-  "permissions": [
-    "User.Read.All"
-  ],
-  "provisioning": [
-    "Employees",
-    "Departments"
-  ],
-  "warnings": []
-}
+The desired result is:
 
-That means another AI tool doesn't need to understand SharePoint deployment either.
+```text
+Developer
+AI
+Lovable
+React Application
+Visual Designer
 
-Give AI agents a Tool API
+        ↓
 
-This could be a major differentiator.
+CODBSharePoint SDK
 
-Instead of AI dumping files into CODBSharePoint, expose deterministic operations:
+        ↓
 
-CODBSharePoint.tools.createSolution()
-CODBSharePoint.tools.createWebPart()
-CODBSharePoint.tools.createExtension()
-CODBSharePoint.tools.createACE()
+Project IR + VFS
 
-CODBSharePoint.tools.createList()
-CODBSharePoint.tools.createLibrary()
-CODBSharePoint.tools.createColumn()
-CODBSharePoint.tools.createContentType()
+        ↓
 
-CODBSharePoint.tools.addGraphPermission()
-CODBSharePoint.tools.addPropertyPane()
+TypeScript Compiler
++
+esbuild-wasm
++
+Browser Sass
 
-CODBSharePoint.tools.compile()
-CODBSharePoint.tools.test()
-CODBSharePoint.tools.validate()
-CODBSharePoint.tools.repair()
-CODBSharePoint.tools.package()
+        ↓
 
-Now an AI agent can operate CODBSharePoint as a SharePoint development machine, rather than generating a pile of source code and hoping Microsoft accepts its offering.
+CODB SPFx Compatibility Layer
 
-Add deterministic testing
+        ↓
 
-Before giving someone an SPPKG:
+Production SPFx Bundle
 
-CODBSharePoint Test Suite
+        ↓
 
-✓ TypeScript
-✓ React
-✓ Imports
-✓ Dependencies
-✓ SPFx manifests
-✓ Component IDs
-✓ Feature XML
-✓ OPC relationships
-✓ package-solution
-✓ Graph permissions
-✓ SharePoint permissions
-✓ External URLs
-✓ Localization
-✓ Bundle
-✓ Browser runtime
-✓ SPFx compatibility
-✓ SPPKG structure
+SPFx Manifests
 
-17/17 PASSED
+        ↓
 
-Production Ready
+Feature Framework
 
-That last claim should have a precise defined meaning, obviously, rather than the traditional software definition of "it worked once on my laptop."
+        ↓
 
-And an offline mode
+Package Solution
 
-Because your runtime is browser-based, make it a PWA.
+        ↓
 
-Once CODBSharePoint and its compiler assets are cached:
+OPC Packager
 
-Internet
-   X
+        ↓
 
-Browser
- │
- ├── AI-generated source
- │
- ├── CODBSharePoint
- │
- ├── Compiler WASM
- │
- ├── SPFx schemas
- │
- ├── Templates
- │
- └── Validator
-       ↓
-     SPPKG
+Strict Validator
 
-That would be unusually compelling for government/enterprise environments where source code shouldn't necessarily leave the machine.
+        ↓
 
-One feature I'd consider the moonshot
+Solution.sppkg
 
-SharePoint Solution Simulator.
+        ↓
 
-Instead of only previewing a React component, emulate enough of SharePoint that a generated solution can be tested:
+DIRECT UPLOAD
 
-┌─────────────────────────────────────────────┐
-│ Fake SharePoint Site                        │
-│                                             │
-│ Home   Documents   Employees   Requests     │
-├─────────────────────────────────────────────┤
-│                                             │
-│       Employee Directory WebPart            │
-│                                             │
-│ Daniel       IT                             │
-│ Charles      IT                             │
-│ ...                                         │
-│                                             │
-└─────────────────────────────────────────────┘
+        ↓
 
-Simulation:
-✓ PageContext
-✓ Current User
-✓ Lists
-✓ Libraries
-✓ Graph
-✓ REST
-✓ Theme
-✓ Property Pane
-✓ Extensions
+SharePoint Online App Catalog
 
-An AI could build an entire SharePoint solution, run it inside the browser, inspect the rendered result, fix it, retest it, and only then package the SPPKG.
+        ↓
 
-Put all of that together and the positioning becomes much stronger:
+DEPLOY
 
-CODBSharePoint is a browser-native SharePoint compiler and AI development SDK that can generate, import, analyze, simulate, test, repair, modernize, compile and package SharePoint solutions without requiring a traditional local SPFx development environment.
+        ↓
 
-I wouldn't claim today that "nothing like this exists anywhere on the web" without a much broader competitive survey. But the combination of browser-native packaging + universal IR + SPPKG round-trip + simulator + AI repair loop + compatibility/security analysis is where I'd look for genuine differentiation. The individual pieces exist in various forms; making them one embeddable CDN SDK is the interesting part.
+RUN
+```
+
+**CODBSharePoint must become a genuine browser-native alternative build engine for modern SharePoint Framework development.**
+
+It should use Microsoft's latest SPFx build architecture as its compatibility reference while replacing Node-dependent compilation/build stages with browser-native open-source technologies.
+
+Do not route production compilation through GitHub.
+
+Do not route production compilation through a VPS.
+
+Do not fake TypeScript compilation.
+
+Do not generate placeholder bundles.
+
+Do not declare ZIP creation equivalent to SPPKG compatibility.
+
+Do not claim support for a component or SPFx version until conformance tests demonstrate it.
+
+The first milestone is not "all features implemented."
+
+The first milestone is:
+
+**One non-trivial React + TypeScript + SCSS SPFx 1.22+ Web Part compiled completely by CODBSharePoint in the browser, packaged into an `.sppkg`, uploaded directly to SharePoint Online, deployed, added to a modern SharePoint page, and successfully executed without any GitHub, server, Node, Gulp, Heft, or Webpack installation on the user's machine.**
+
+Once that works reliably, expand the compatibility matrix from that proven foundation.
