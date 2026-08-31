@@ -39,6 +39,7 @@ import {
 import { createStorage, type StorageAdapter, type StorageKind } from '../storage/index.js';
 import { TemplateRegistry, type ComponentTemplate } from '../templates/index.js';
 import { generateStaticPublish, type StaticPublishOptions, type StaticPublishResult } from '../publish/index.js';
+import { DesignerRulesEngine, type DesignerRule, BUILT_IN_RULES } from './rules.js';
 
 export interface ProjectSettings {
   name?: string;
@@ -66,15 +67,17 @@ export class Designer {
   private builder: DesignerBuilder;
   private storage: StorageAdapter;
   readonly templates: TemplateRegistry;
+  readonly rules: DesignerRulesEngine;
   private manifest: ProjectManifest;
   private assets: Record<string, string>;
 
-  constructor(builder: DesignerBuilder, options: { storage?: StorageAdapter | StorageKind; templates?: ComponentTemplate[] } = {}) {
+  constructor(builder: DesignerBuilder, options: { storage?: StorageAdapter | StorageKind; templates?: ComponentTemplate[]; rules?: DesignerRule[] } = {}) {
     this.builder = builder;
     this.storage = options.storage
       ? (typeof options.storage === 'string' ? createStorage(options.storage) : options.storage)
       : createStorage('memory');
     this.templates = new TemplateRegistry(options.templates);
+    this.rules = new DesignerRulesEngine(options.rules || BUILT_IN_RULES);
 
     this.manifest = this.emptyManifest('NewSolution');
     this.assets = {};
@@ -237,6 +240,66 @@ export class Designer {
 
   addGraphPermission(scope: string, type: 'Delegated' | 'Application' = 'Delegated'): void {
     irAddGraphPermission(this.manifest.ir, scope, type);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rule-based authoring
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Create a new project from a rule, applying all components, data sources,
+   * fields, lists, permissions, and source files defined in the rule.
+   */
+  async createFromRule(ruleId: string, overrides: { name?: string; description?: string } = {}): Promise<DesignerRule | undefined> {
+    const rule = this.rules.get(ruleId);
+    if (!rule) return undefined;
+
+    const { ir, files, permissions } = this.rules.createProject(rule, overrides);
+    this.manifest.ir = ir;
+    this.manifest.settings = {
+      ...this.manifest.settings,
+      name: overrides.name || rule.name,
+      description: overrides.description || rule.description,
+      spfxVersion: rule.spfxVersion as any
+    };
+
+    // Apply source files from rule
+    this.assets = {};
+    for (const [path, content] of files) {
+      this.assets[path] = content;
+    }
+
+    return rule;
+  }
+
+  /**
+   * Export the current project as a reusable rule.
+   */
+  exportAsRule(metadata: { name: string; description?: string; author?: string; tags?: string[] } = { name: this.manifest.settings.name || 'ExportedRule' }): DesignerRule {
+    return this.rules.exportFromProject(this.manifest.ir, this.assets, metadata);
+  }
+
+  /**
+   * Validate the current project against a specific rule.
+   */
+  validateAgainstRule(ruleId: string): { valid: boolean; errors: string[]; warnings: string[] } {
+    const rule = this.rules.get(ruleId);
+    if (!rule) return { valid: false, errors: [`Rule "${ruleId}" not found`], warnings: [] };
+    return this.rules.validateRule(rule);
+  }
+
+  /**
+   * Search built-in and registered rules.
+   */
+  searchRules(query: string): DesignerRule[] {
+    return this.rules.search(query);
+  }
+
+  /**
+   * List all available rules.
+   */
+  listRules(): DesignerRule[] {
+    return this.rules.list();
   }
 
   setLocalization(config: { defaultLanguage: string; languages?: string[]; strings?: Record<string, Record<string, string>> }): void {

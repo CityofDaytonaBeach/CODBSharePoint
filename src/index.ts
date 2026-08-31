@@ -118,6 +118,8 @@ import type { ComponentTemplate, TemplateKind, TemplateRenderContext } from './t
 
 // Designer
 import { Designer } from './designer/index.js';
+import { DesignerRulesEngine, BUILT_IN_RULES } from './designer/rules.js';
+import type { DesignerRule, RuleField, RulePropertyPane, RuleDataSource } from './designer/rules.js';
 
 // Static publish
 import { generateStaticPublish } from './publish/index.js';
@@ -729,6 +731,13 @@ export class CODBSharePoint {
     return new Designer(this, options);
   }
 
+  get designerAPI() {
+    return {
+      DesignerRulesEngine,
+      BUILT_IN_RULES
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Lower-level APIs
   // ---------------------------------------------------------------------------
@@ -1052,6 +1061,8 @@ export { generateSPPKG, validateSPPKGStructure, validateSPPKGPackage } from './o
 // Serverless authoring support
 export { Designer } from './designer/index.js';
 export type { ProjectManifest, ProjectSettings, DesignerBuilder } from './designer/index.js';
+export { DesignerRulesEngine, BUILT_IN_RULES } from './designer/rules.js';
+export type { DesignerRule, RuleField, RulePropertyPane, RuleDataSource, RuleValidation, RuleFormatting } from './designer/rules.js';
 export { TemplateRegistry } from './templates/index.js';
 export type { ComponentTemplate, TemplateKind, TemplateRenderContext } from './templates/index.js';
 export { createStorage, MemoryStorage, LocalStorageAdapter, IndexedDBStorage } from './storage/index.js';
