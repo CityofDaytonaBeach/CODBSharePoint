@@ -436,6 +436,18 @@ export class CODBSharePoint {
     // 2. Compile source files
     const compileResult = await this.compiler.compile(ir, sourceFiles);
 
+    if (!compileResult.success) {
+      errors.push(...compileResult.errors.map(error => ({
+        code: 'TS001',
+        message: error.message,
+        severity: error.severity,
+        category: 'compilation',
+        file: error.file,
+        line: error.line,
+        column: error.column
+      })));
+    }
+
     this.emit({ type: 'build:progress', stage: 'bundling', progress: 50 });
 
     // 3. Bundle
@@ -444,19 +456,40 @@ export class CODBSharePoint {
       sourceMaps: buildOptions.sourceMaps
     });
 
+    if (!bundleResult.success) {
+      errors.push(...bundleResult.errors.map(message => ({
+        code: 'BUNDLE001',
+        message,
+        severity: 'error',
+        category: 'bundling'
+      })));
+    }
+
     this.emit({ type: 'build:progress', stage: 'packaging', progress: 75 });
 
     // 4. Generate SPPKG
     let sppkg: Uint8Array | undefined;
-    try {
-      sppkg = generateSPPKG(ir, bundleResult.files);
-    } catch (error) {
-      errors.push({
-        code: 'PKG001',
-        message: `SPPKG generation failed: ${(error as Error).message}`,
+    if (compileResult.success && bundleResult.success) {
+      try {
+        sppkg = generateSPPKG(ir, bundleResult.files);
+      } catch (error) {
+        errors.push({
+          code: 'PKG001',
+          message: `SPPKG generation failed: ${(error as Error).message}`,
+          severity: 'error',
+          category: 'packaging'
+        });
+      }
+    }
+
+    const packageStructureErrors = validateSPPKGStructure(ir, bundleResult.files);
+    if (packageStructureErrors.length > 0) {
+      errors.push(...packageStructureErrors.map(message => ({
+        code: 'SPPKG001',
+        message,
         severity: 'error',
         category: 'packaging'
-      });
+      })));
     }
 
     this.emit({ type: 'build:progress', stage: 'security', progress: 85 });
@@ -469,21 +502,29 @@ export class CODBSharePoint {
 
     // 7. Bundle analysis
     const bundleAnalysis = this.analyzeBundle(bundleResult);
+    const success =
+      errors.length === 0 &&
+      sppkg !== undefined &&
+      validation.valid &&
+      compileResult.success &&
+      bundleResult.success &&
+      security.passed &&
+      compatibility.compatible;
 
     // 8. Generate deployment manifest
     const buildResult: BuildResult = {
-      success: sppkg !== undefined && validation.valid,
+      success,
       sppkg,
       files: compileResult.files,
       deployment: this.exporter.generateDeploymentManifest(ir, {
-        success: sppkg !== undefined,
+        success,
         sppkg,
         files: compileResult.files,
         validation,
         security,
         compatibility,
         bundle: bundleAnalysis,
-        errors: compileResult.errors as any,
+        errors,
         warnings: compileResult.warnings as any,
         duration: Date.now() - startTime
       }),
@@ -491,7 +532,7 @@ export class CODBSharePoint {
       security,
       compatibility,
       bundle: bundleAnalysis,
-      errors: compileResult.errors as any,
+      errors,
       warnings: compileResult.warnings as any,
       duration: Date.now() - startTime
     };
@@ -555,6 +596,31 @@ export class CODBSharePoint {
    */
   async compatibility(ir: CODBIR): Promise<CompatibilityReport> {
     return this.checkCompatibility(ir);
+  }
+
+  capabilities(): Record<string, boolean> {
+    return {
+      browserCompiler: true,
+      esbuildWasm: true,
+      typescriptChecking: false,
+      tsx: true,
+      jsx: true,
+      react: true,
+      sass: false,
+      cssModules: true,
+      productionBundling: false,
+      spfxExternals: false,
+      spfx122: false,
+      sppkg: false,
+      webParts: true,
+      applicationCustomizers: false,
+      fieldCustomizers: false,
+      commandSets: false,
+      ace: false,
+      graphPermissions: true,
+      featureFramework: false,
+      offline: false
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -731,6 +797,32 @@ export class CODBSharePoint {
       });
     }
 
+    for (const component of ir.components) {
+      if (component.type !== 'webpart') {
+        issues.push({
+          severity: 'error',
+          component: component.name,
+          message: `Component type "${component.type}" is not production-proven for ${targetVersion}`
+        });
+      }
+
+      if (component.framework !== 'react' && component.framework !== 'vanilla') {
+        issues.push({
+          severity: 'error',
+          component: component.name,
+          message: `Framework "${component.framework}" is not supported by the production build path`
+        });
+      }
+    }
+
+    for (const extension of ir.extensions) {
+      issues.push({
+        severity: 'error',
+        component: extension.name,
+        message: `Extension type "${extension.type}" is not production-proven yet`
+      });
+    }
+
     return {
       compatible: issues.filter(i => i.severity === 'error').length === 0,
       targetVersion,
@@ -764,20 +856,7 @@ export class CODBSharePoint {
       name: 'CODBSharePoint',
       version: this.version,
       description: 'Browser-native SharePoint compiler, validator, and packaging SDK',
-      features: [
-        'SPFx Web Part compilation',
-        'Extension support (Application Customizer, Field Customizer, Command Set)',
-        'Adaptive Card Extensions',
-        'SPPKG generation',
-        'Source project generation',
-        'Graph permission analysis',
-        'Security scanning',
-        'Compatibility checking',
-        'Bundle analysis',
-        'SharePoint simulator',
-        'Import/Export',
-        'Tool API for AI agents'
-      ],
+      capabilities: this.capabilities(),
       spfxVersions: Object.keys(SPFx_COMPATIBILITY),
       buildTargets: [
         'sharepoint.spfx.webpart',

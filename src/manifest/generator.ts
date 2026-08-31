@@ -291,21 +291,24 @@ export function generateTsConfig(ir: CODBIR): Record<string, unknown> {
 }
 
 export function generatePackageJson(ir: CODBIR): Record<string, unknown> {
+  const spfxVersion = ir.metadata.spfxVersion || '1.22.0';
+  const compatibility = SPFx_COMPATIBILITY[spfxVersion as keyof typeof SPFx_COMPATIBILITY] || SPFx_COMPATIBILITY['1.22.0'];
   const dependencies: Record<string, string> = {
-    '@microsoft/sp-core-library': '1.18.0',
-    '@microsoft/sp-lodash-subset': '1.18.0',
-    '@microsoft/sp-property-pane': '1.18.0',
-    '@microsoft/sp-http': '1.18.0'
+    '@microsoft/sp-core-library': spfxVersion,
+    '@microsoft/sp-lodash-subset': spfxVersion,
+    '@microsoft/sp-property-pane': spfxVersion,
+    '@microsoft/sp-http': spfxVersion
   };
 
   // Add framework-specific dependencies
   const hasReact = ir.components.some(c => c.framework === 'react');
   if (hasReact) {
-    dependencies['react'] = '^17.0.1';
-    dependencies['react-dom'] = '^17.0.1';
-    dependencies['@types/react'] = '^17.0.45';
-    dependencies['@types/react-dom'] = '^17.0.17';
-    dependencies['@microsoft/sp-component-base'] = '1.18.0';
+    const reactVersion = compatibility?.react === '18' ? '^18.2.0' : '^17.0.1';
+    dependencies['react'] = reactVersion;
+    dependencies['react-dom'] = reactVersion;
+    dependencies['@types/react'] = compatibility?.react === '18' ? '^18.2.0' : '^17.0.45';
+    dependencies['@types/react-dom'] = compatibility?.react === '18' ? '^18.2.0' : '^17.0.17';
+    dependencies['@microsoft/sp-component-base'] = spfxVersion;
   }
 
   return {

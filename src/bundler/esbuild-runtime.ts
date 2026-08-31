@@ -6,7 +6,7 @@
 // ============================================================================
 
 export interface TransformOptions {
-  loader: 'ts' | 'tsx';
+  loader: 'js' | 'jsx' | 'ts' | 'tsx';
   minify?: boolean;
   sourceMap?: boolean;
   target?: string;
@@ -137,7 +137,7 @@ export async function bundleContent(
     const result = await mod.build({
       stdin: {
         contents: entry.content,
-        loader: /\.tsx$/.test(entry.path) ? 'tsx' : /\.ts$/.test(entry.path) ? 'ts' : 'js',
+        loader: /\.tsx$/.test(entry.path) ? 'tsx' : /\.ts$/.test(entry.path) ? 'ts' : /\.jsx$/.test(entry.path) ? 'jsx' : 'js',
         resolveDir: '.'
       },
       bundle: options.bundle ?? true,
@@ -165,7 +165,7 @@ export async function bundleContent(
 // ----------------------------------------------------------------------------
 // VFS-backed bundling
 // Bundles a module graph from an in-memory file map (no filesystem needed),
-// marking SPFx/React externals and CSS imports as external.
+// marking SPFx/React runtime modules external while resolving project CSS.
 // ----------------------------------------------------------------------------
 
 const DEFAULT_EXTERNALS = [
@@ -203,15 +203,38 @@ export async function bundleFromVFS(
       if (options.external?.includes(specifier)) return true;
       if (specifier === 'react' || specifier === 'react-dom') return true;
       if (specifier.startsWith('@microsoft/')) return true;
-      if (specifier.endsWith('.css') || specifier.endsWith('.scss')) return true;
       return false;
     };
 
     const resolveCandidate = (base: string): string | undefined => {
       if (fileMap.has(base)) return base;
       if (!base.endsWith('.js') && fileMap.has(`${base}.js`)) return `${base}.js`;
+      if (base.endsWith('.scss') && fileMap.has(base.replace(/\.scss$/, '.css'))) return base.replace(/\.scss$/, '.css');
       if (!base.endsWith('.json') && fileMap.has(`${base}.json`)) return `${base}.json`;
       return undefined;
+    };
+
+    const cssModuleObject = (path: string, contents: string): string => {
+      const classes = new Set<string>();
+      const classPattern = /\.([_a-zA-Z]+[_a-zA-Z0-9-]*)/g;
+      let match: RegExpExecArray | null;
+
+      while ((match = classPattern.exec(contents)) !== null) {
+        classes.add(match[1]);
+      }
+
+      const mappings = Array.from(classes).sort().map(name => {
+        return `  ${JSON.stringify(name)}: ${JSON.stringify(name)}`;
+      }).join(',\n');
+
+      return `const css = ${JSON.stringify(contents)};
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.setAttribute('data-codb-source', ${JSON.stringify(path)});
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+export default {\n${mappings}\n};`;
     };
 
     const normalize = (dir: string, specifier: string): string => {
@@ -248,7 +271,10 @@ export async function bundleFromVFS(
           if (contents === undefined) {
             return { errors: [{ text: `File not found: ${args.path}` }] };
           }
-          return { contents, loader: args.path.endsWith('.json') ? 'json' : 'js' };
+          if (args.path.endsWith('.css')) {
+            return { contents: cssModuleObject(args.path, contents), loader: 'js' };
+          }
+          return { contents, loader: args.path.endsWith('.json') ? 'json' : args.path.endsWith('.jsx') ? 'jsx' : 'js' };
         });
       }
     };

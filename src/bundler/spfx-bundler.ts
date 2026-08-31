@@ -20,6 +20,7 @@ export interface BundleResult {
   externals: string[];
   totalSize: number;
   files: Map<string, string | Uint8Array>;
+  errors: string[];
 }
 
 export interface BundleChunk {
@@ -40,6 +41,7 @@ export class SPFxBundle {
   async bundle(ir: CODBIR, compiledFiles: VFSFile[], options: BundleOptions = {}): Promise<BundleResult> {
     const chunks: BundleChunk[] = [];
     const files = new Map<string, string | Uint8Array>();
+    const errors: string[] = [];
     let totalSize = 0;
 
     const externals = [
@@ -62,7 +64,14 @@ export class SPFxBundle {
       if (componentFiles.length > 0) {
         const name = component.name;
         const candidates = this.findEntryCandidates(componentFiles, name);
-        const bundleContent = await this.bundleEntry(componentFiles, candidates, externals, options);
+        const bundle = await this.bundleEntry(componentFiles, candidates, externals, options);
+
+        if (!bundle.success || !bundle.content) {
+          errors.push(bundle.error || `Failed to bundle component ${name}`);
+          continue;
+        }
+
+        const bundleContent = bundle.content;
         const chunk: BundleChunk = {
           name: `${name}.bundle.js`,
           content: bundleContent,
@@ -84,7 +93,14 @@ export class SPFxBundle {
       if (extFiles.length > 0) {
         const name = ext.name;
         const candidates = this.findEntryCandidates(extFiles, name);
-        const bundleContent = await this.bundleEntry(extFiles, candidates, externals, options);
+        const bundle = await this.bundleEntry(extFiles, candidates, externals, options);
+
+        if (!bundle.success || !bundle.content) {
+          errors.push(bundle.error || `Failed to bundle extension ${name}`);
+          continue;
+        }
+
+        const bundleContent = bundle.content;
         const chunk: BundleChunk = {
           name: `${name}.bundle.js`,
           content: bundleContent,
@@ -107,19 +123,13 @@ export class SPFxBundle {
       totalSize += cssContent.length;
     }
 
-    // Generate vendor bundle
-    const vendorBundle = this.createVendorBundle(ir, externals);
-    if (vendorBundle) {
-      files.set('vendor.bundle.js', vendorBundle);
-      totalSize += vendorBundle.length;
-    }
-
     return {
-      success: true,
+      success: errors.length === 0 && chunks.length > 0,
       chunks,
       externals,
       totalSize,
-      files
+      files,
+      errors
     };
   }
 
@@ -145,10 +155,10 @@ export class SPFxBundle {
     candidates: string[],
     externals: string[],
     options: BundleOptions
-  ): Promise<string> {
+  ): Promise<{ success: boolean; content?: string; error?: string }> {
     const entry = candidates[0];
     if (!entry) {
-      return this.createBundle(files, externals);
+      return { success: false, error: 'No JavaScript entry point found for bundle' };
     }
 
     const fileMap = files.map(f => ({
@@ -167,75 +177,9 @@ export class SPFxBundle {
     });
 
     if (result.ok && result.code) {
-      return result.code;
+      return { success: true, content: result.code };
     }
-    return this.createBundle(files, externals);
-  }
-
-  private createBundle(files: VFSFile[], externals: string[]): string {
-    let bundle = '';
-    const moduleMap = new Map<string, string>();
-
-    // Wrap each file as a module
-    for (const file of files) {
-      let content = typeof file.content === 'string' ? file.content : new TextDecoder().decode(file.content);
-
-      // Replace external requires
-      for (const external of externals) {
-        const regex = new RegExp(`require\\(['"]${external.replace('/', '\\/')}['"]\\)`, 'g');
-        content = content.replace(regex, `window['${external.replace('/', '.')}']`);
-      }
-
-      moduleMap.set(file.path, content);
-    }
-
-    // Create AMD-compatible bundle
-    bundle += `(function() {\n`;
-    bundle += `  var modules = {};\n`;
-    bundle += `  var cache = {};\n\n`;
-
-    bundle += `  function require(moduleId) {\n`;
-    bundle += `    if (cache[moduleId]) return cache[moduleId].exports;\n`;
-    bundle += `    var module = cache[moduleId] = { exports: {} };\n`;
-    bundle += `    modules[moduleId](module, module.exports, require);\n`;
-    bundle += `    return module.exports;\n`;
-    bundle += `  }\n\n`;
-
-    let moduleIndex = 0;
-    for (const [path, content] of moduleMap) {
-      const moduleId = path.replace(/\.js$/, '').replace(/[^a-zA-Z0-9]/g, '_');
-      bundle += `  modules['${moduleId}'] = function(module, exports, require) {\n`;
-      bundle += `    // ${path}\n`;
-      bundle += `    ${content}\n`;
-      bundle += `  };\n\n`;
-      moduleIndex++;
-    }
-
-    // Entry point
-    if (moduleMap.size > 0) {
-      const firstModule = Array.from(moduleMap.keys())[0];
-      const entryId = firstModule.replace(/\.js$/, '').replace(/[^a-zA-Z0-9]/g, '_');
-      bundle += `  require('${entryId}');\n`;
-    }
-
-    bundle += `})();\n`;
-
-    return bundle;
-  }
-
-  private createVendorBundle(ir: CODBIR, externals: string[]): string | null {
-    // Create a stub for external dependencies
-    let vendor = `(function() {\n`;
-    vendor += `  // Vendor bundle - external dependencies\n`;
-
-    for (const external of externals) {
-      const namespace = external.replace('/', '.');
-      vendor += `  window['${namespace}'] = window['${namespace}'] || {};\n`;
-    }
-
-    vendor += `})();\n`;
-
-    return vendor;
+    return { success: false, error: result.error || `Failed to bundle entry ${entry}` };
   }
 
   getVFS(): VFS {

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CODBSharePoint SharePoint Online Deployment Test",
+  "type": "object",
+  "required": [
+    "codbSharePointVersion",
+    "spfxTarget",
+    "sharePointEnvironment",
+    "componentType",
+    "testDate",
+    "result"
+  ],
+  "properties": {
+    "codbSharePointVersion": { "type": "string" },
+    "spfxTarget": { "type": "string" },
+    "sharePointEnvironment": { "type": "string" },
+    "componentType": { "type": "string" },
+    "testDate": { "type": "string" },
+    "result": { "enum": ["pass", "fail", "blocked"] },
+    "appCatalogRecognized": { "type": "boolean" },
+    "deployed": { "type": "boolean" },
+    "installed": { "type": "boolean" },
+    "componentAddedToPage": { "type": "boolean" },
+    "componentLoaded": { "type": "boolean" },
+    "reactRendered": { "type": "boolean" },
+    "stylesRendered": { "type": "boolean" },
+    "graphPermissionsAppeared": { "type": "boolean" },
+    "graphWorkedAfterApproval": { "type": "boolean" },
+    "criticalConsoleErrors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": { "type": "string" }
+  }
+}

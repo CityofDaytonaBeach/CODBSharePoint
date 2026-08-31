@@ -1,6 +1,6 @@
 // ============================================================================
 // Compiler - Transforms TypeScript/React source code
-// Uses esbuild-wasm or transpiler for browser-based compilation
+// Uses esbuild-wasm for browser-based compilation
 // ============================================================================
 
 import type { CODBIR, ComponentDefinition, Framework, SPFxVersion, BuildOptions, VFSFile } from '../types/index.js';
@@ -8,6 +8,7 @@ import { createVFS, type VFS } from '../core/vfs.js';
 import { generateSharePointArtifacts } from '../provisioning/generator.js';
 import { transformContent } from '../bundler/esbuild-runtime.js';
 import { generateLocalizationFiles } from '../localization/generator.js';
+import { checkTypeScriptFiles } from './typescript-checker.js';
 
 export interface CompileOptions {
   framework: Framework;
@@ -65,6 +66,18 @@ export class SPFxCompiler {
       // Generate scaffold if no source files provided
       if (!sourceFiles || sourceFiles.size === 0) {
         sourceFiles = this.generateScaffold(ir);
+      }
+
+      const typeErrors = await checkTypeScriptFiles(sourceFiles);
+      if (typeErrors.length > 0) {
+        return {
+          success: false,
+          files: [],
+          errors: typeErrors,
+          warnings,
+          entryPoint: ir.components[0]?.entry || '',
+          bundleSize: 0
+        };
       }
 
       // Compile each source file
@@ -138,6 +151,11 @@ export class SPFxCompiler {
       files.push(...result.files);
       errors.push(...result.errors);
       warnings.push(...result.warnings);
+    } else if (ext === 'jsx') {
+      const result = await this.compileJavaScript(path, content);
+      files.push(...result.files);
+      errors.push(...result.errors);
+      warnings.push(...result.warnings);
     } else if (ext === 'scss' || ext === 'css') {
       // CSS/SCSS compilation
       const result = await this.compileStyles(path, content);
@@ -169,16 +187,59 @@ export class SPFxCompiler {
     };
   }
 
-  // TypeScript compilation (simplified for browser)
+  private async compileJavaScript(path: string, content: string): Promise<CompileResult> {
+    const errors: CompileError[] = [];
+    const warnings: string[] = [];
+    const files: VFSFile[] = [];
+
+    try {
+      const transformResult = await transformContent(content, {
+        loader: 'jsx',
+        minify: this.options.minify,
+        sourceMap: false,
+        target: 'es2022'
+      });
+
+      if (!transformResult.ok || !transformResult.code) {
+        errors.push({
+          message: transformResult.error || 'esbuild produced no output',
+          file: path,
+          severity: 'error'
+        });
+      } else {
+        files.push({
+          path: path.replace(/\.jsx$/, '.js').replace(/^src\//, 'lib/'),
+          content: this.rewriteStyleImports(transformResult.code),
+          encoding: 'utf-8'
+        });
+      }
+    } catch (err) {
+      errors.push({
+        message: err instanceof Error ? err.message : 'JavaScript compilation failed',
+        file: path,
+        severity: 'error'
+      });
+    }
+
+    return {
+      success: errors.length === 0,
+      files,
+      errors,
+      warnings,
+      entryPoint: path,
+      bundleSize: content.length
+    };
+  }
+
+  // TypeScript compilation
   private async compileTypeScript(path: string, content: string): Promise<CompileResult> {
     const errors: CompileError[] = [];
     const warnings: string[] = [];
     const files: VFSFile[] = [];
 
-    // Try esbuild-wasm (offline real transform) first; fall back to simplified
+    // Use esbuild-wasm for real TypeScript/TSX transformation. Do not report
+    // production success when the compiler is unavailable or failed.
     try {
-      let compiled: string;
-
       const transformResult = await transformContent(content, {
         loader: path.endsWith('.tsx') ? 'tsx' : 'ts',
         minify: this.options.minify,
@@ -186,16 +247,24 @@ export class SPFxCompiler {
         target: 'es2022'
       });
 
-      if (transformResult.ok && transformResult.code) {
-        compiled = transformResult.code;
-      } else {
-        if (transformResult.error && !/not available/.test(transformResult.error)) {
-          warnings.push(`esbuild transform failed for ${path}: ${transformResult.error}`);
-        }
-        // Simplified fallback
-        compiled = this.removeTypeAnnotations(content);
-        compiled = this.transformImports(compiled, path);
+      if (!transformResult.ok || !transformResult.code) {
+        errors.push({
+          message: transformResult.error || 'esbuild produced no output',
+          file: path,
+          severity: 'error'
+        });
+
+        return {
+          success: false,
+          files,
+          errors,
+          warnings,
+          entryPoint: path,
+          bundleSize: content.length
+        };
       }
+
+      const compiled = this.rewriteStyleImports(transformResult.code);
 
       // Output compiled JS
       const outputPath = path
@@ -255,6 +324,24 @@ export class SPFxCompiler {
 
       // SCSS to CSS (simplified - remove nesting)
       if (path.endsWith('.scss')) {
+        const unsupported = this.findUnsupportedScssFeatures(content);
+        if (unsupported.length > 0) {
+          errors.push({
+            message: `Unsupported SCSS syntax: ${unsupported.join(', ')}. A browser Sass compiler is required for this file.`,
+            file: path,
+            severity: 'error'
+          });
+
+          return {
+            success: false,
+            files,
+            errors,
+            warnings: [],
+            entryPoint: path,
+            bundleSize: content.length
+          };
+        }
+
         compiled = this.compileSCSS(content);
       }
 
@@ -323,10 +410,6 @@ export class SPFxCompiler {
 
   // Generate React WebPart file
   private generateReactWebPart(component: ComponentDefinition, namespace: string): string {
-    const imports = component.properties.length > 0
-      ? "import { I${component.name}Props } from './components/${component.name}Props';"
-      : '';
-
     return `import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import { Version } from '@microsoft/sp-core-library';
@@ -335,8 +418,8 @@ import {
   PropertyPaneTextField
 } from '@microsoft/sp-property-pane';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
-
-${imports}
+import ${component.name}Component from './components/${component.name}';
+import type { I${component.name}Props } from './components/${component.name}Props';
 
 export interface I${component.name}WebPartProps {
   description: string;
@@ -681,24 +764,8 @@ module.exports = require('./webparts/${ir.components[0]?.name || 'index'}/${ir.c
     return files;
   }
 
-  // Simplified type annotation removal
-  private removeTypeAnnotations(content: string): string {
-    return content
-      .replace(/:\s*(string|number|boolean|any|void|never|object|Array<[^>]+>|Record<[^,]+,\s*[^>]+>|\{[^}]*\}|[A-Z][a-zA-Z]*)\s*/g, ' ')
-      .replace(/interface\s+\w+\s*\{[^}]*\}/g, '')
-      .replace(/type\s+\w+\s*=\s*[^;]+;/g, '')
-      .replace(/<[^>]+>/g, '')
-      .replace(/as\s+[A-Z][a-zA-Z]*/g, '')
-      .replace(/import\s+type\s+/g, 'import ');
-  }
-
-  // Simplified import transformation
-  private transformImports(content: string, currentPath: string): string {
-    return content
-      .replace(/from\s+['"]@microsoft\/sp-core-library['"]/g, "from '@microsoft/sp-core-library'")
-      .replace(/from\s+['"]@microsoft\/sp-webpart-base['"]/g, "from '@microsoft/sp-webpart-base'")
-      .replace(/from\s+['"]@microsoft\/sp-property-pane['"]/g, "from '@microsoft/sp-property-pane'")
-      .replace(/import\s+styles\s+from\s+['"]\.\/[^'"]+\.module\.scss['"]/g, "import './styles.css'");
+  private rewriteStyleImports(content: string): string {
+    return content.replace(/(from\s+['"][^'"]+)\.scss(['"])/g, '$1.css$2');
   }
 
   // Generate declaration file (simplified)
@@ -726,18 +793,61 @@ module.exports = require('./webparts/${ir.components[0]?.name || 'index'}/${ir.c
     });
   }
 
-  // SCSS compilation (simplified - removes nesting)
+  // SCSS compilation for the generated Phase 1 scaffold. Full Sass syntax still
+  // needs a browser Sass compiler before claiming complete SCSS support.
   private compileSCSS(content: string): string {
-    // Simple SCSS to CSS - just remove @import and handle basic nesting
-    let css = content;
+    const source = content.replace(/@import\s+['"][^'"]+['"]\s*;?/g, '');
+    const output: string[] = [];
+    const stack: string[] = [];
+    let declarations: string[] = [];
 
-    // Remove SCSS imports
-    css = css.replace(/@import\s+['"][^'"]+['"]\s*;?/g, '');
+    const flush = () => {
+      if (stack.length > 0 && declarations.length > 0) {
+        output.push(`${stack.join(' ')} {`);
+        for (const declaration of declarations) {
+          output.push(`  ${declaration}`);
+        }
+        output.push('}');
+        declarations = [];
+      }
+    };
 
-    // Remove nesting (simplified)
-    css = css.replace(/\n\s+/g, '\n');
+    for (const rawLine of source.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
 
-    return css;
+      if (line.endsWith('{')) {
+        flush();
+        stack.push(line.slice(0, -1).trim());
+      } else if (line === '}') {
+        flush();
+        stack.pop();
+      } else {
+        declarations.push(line);
+      }
+    }
+
+    flush();
+    return `${output.join('\n')}\n`;
+  }
+
+  private findUnsupportedScssFeatures(content: string): string[] {
+    const unsupported: string[] = [];
+    const checks: Array<[RegExp, string]> = [
+      [/\$[a-zA-Z_][\w-]*\s*:/, 'variables'],
+      [/@mixin\b/, 'mixins'],
+      [/@include\b/, 'includes'],
+      [/@use\b/, 'use rules'],
+      [/@forward\b/, 'forward rules'],
+      [/&[.:#\[]/, 'parent selectors'],
+      [/@if\b|@for\b|@each\b|@while\b/, 'control flow']
+    ];
+
+    for (const [pattern, label] of checks) {
+      if (pattern.test(content)) unsupported.push(label);
+    }
+
+    return unsupported;
   }
 
   getVFS(): VFS {

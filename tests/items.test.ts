@@ -58,12 +58,7 @@ describe('CODBSharePoint - Build each SharePoint item type', () => {
   });
 
   describe('Adaptive Card Extension (ACE)', () => {
-    it('builds a solution with an ACE component', async () => {
-      const result = await sdk.build({
-        name: 'QuickLinksACE',
-        solution: { name: 'QuickLinksACE', version: '1.0.0' }
-      });
-
+    it('creates an ACE IR without claiming production package support', async () => {
       // Build an IR with an ACE and validate explicitly
       const ir = createIR({ name: 'QuickLinksACE' });
       const ace = addACE(ir, {
@@ -79,7 +74,7 @@ describe('CODBSharePoint - Build each SharePoint item type', () => {
 
       const validation = await sdk.validate(ir);
       expect(validation.errors).toHaveLength(0);
-      expect(result.success).toBe(true);
+      expect(sdk.capabilities().ace).toBe(false);
     });
   });
 

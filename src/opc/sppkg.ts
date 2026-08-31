@@ -55,6 +55,10 @@ export function generateSPPKG(ir: CODBIR, bundleFiles: Map<string, string | Uint
   const rootRels = generateRootRels(solutionName);
   vfs.addFile('_rels/.rels', rootRels);
 
+  // 2a. OPC package properties referenced by root relationships
+  vfs.addFile('docProps/core.xml', generateCorePropertiesXml(ir));
+  vfs.addFile('docProps/app.xml', generateAppPropertiesXml(ir));
+
   // 3. Solution folder
   const solutionFolder = `${solutionName}/`;
 
@@ -63,7 +67,7 @@ export function generateSPPKG(ir: CODBIR, bundleFiles: Map<string, string | Uint
   vfs.addFile(`${solutionFolder}package-solution.json`, JSON.stringify(packageSolution, null, 2));
 
   // 5. package.rels (relationships within the solution)
-  const packageRels = generatePackageRels(bundleFiles, solutionName);
+  const packageRels = generatePackageRels(ir, bundleFiles);
   vfs.addFile(`${solutionFolder}_rels/.rels`, packageRels);
 
   // 6. Client-side manifests
@@ -148,19 +152,14 @@ function generateRootRels(solutionName: string): string {
       id: 'rId1'
     },
     {
-      type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/metadata/thumbnail',
-      target: 'docProps/thumbnail.jpeg',
-      id: 'rId2'
-    },
-    {
       type: 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/extended-properties',
       target: 'docProps/app.xml',
-      id: 'rId3'
+      id: 'rId2'
     },
     {
       type: 'http://schemas.microsoft.com/sharepoint/2010/03/containers/container',
       target: `${solutionName}`,
-      id: 'rId4'
+      id: 'rId3'
     }
   ];
 
@@ -170,23 +169,62 @@ ${relationships.map(r => `  <Relationship Id="${r.id}" Type="${r.type}" Target="
 </Relationships>`;
 }
 
+function generateCorePropertiesXml(ir: CODBIR): string {
+  const now = new Date(0).toISOString();
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>${escapeXmlText(ir.solution.name)}</dc:title>
+  <dc:creator>${escapeXmlText(ir.solution.author || ir.solution.company)}</dc:creator>
+  <cp:lastModifiedBy>CODBSharePoint</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>
+</cp:coreProperties>`;
+}
+
+function generateAppPropertiesXml(ir: CODBIR): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>CODBSharePoint</Application>
+  <AppVersion>${escapeXmlText(ir.solution.version)}</AppVersion>
+</Properties>`;
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 // ---------------------------------------------------------------------------
 // Package .rels (inside solution folder)
 // ---------------------------------------------------------------------------
 
-function generatePackageRels(bundleFiles: Map<string, string | Uint8Array>, solutionName: string): string {
+function generatePackageRels(ir: CODBIR, bundleFiles: Map<string, string | Uint8Array>): string {
   const relationships: OPCRelationship[] = [];
   let rid = 1;
 
-  // Add manifest relationships
+  for (const component of ir.components) {
+    relationships.push({
+      type: 'http://schemas.microsoft.com/sharepoint/2010/03/containers/manifest',
+      target: `${component.name}.manifest.json`,
+      id: `rId${rid++}`
+    });
+  }
+
+  for (const ext of ir.extensions) {
+    relationships.push({
+      type: 'http://schemas.microsoft.com/sharepoint/2010/03/containers/manifest',
+      target: `${ext.name}.manifest.json`,
+      id: `rId${rid++}`
+    });
+  }
+
+  // Add bundle relationships
   for (const [path] of bundleFiles) {
-    if (path.endsWith('.manifest.json')) {
-      relationships.push({
-        type: 'http://schemas.microsoft.com/sharepoint/2010/03/containers/manifest',
-        target: path,
-        id: `rId${rid++}`
-      });
-    } else if (path.endsWith('.js')) {
+    if (path.endsWith('.js')) {
       relationships.push({
         type: 'http://schemas.microsoft.com/sharepoint/2010/03/containers/entry',
         target: path,
@@ -237,8 +275,9 @@ export function validateSPPKGStructure(ir: CODBIR, bundleFiles: Map<string, stri
   const errors: string[] = [];
   const solutionName = ir.solution.name;
 
-  // Check for manifest files
-  let hasManifest = false;
+  // Check for manifest files. Manifests may be generated directly by the SPPKG
+  // generator from IR rather than passed through bundleFiles.
+  let hasManifest = ir.components.length > 0 || ir.extensions.length > 0;
   for (const [path] of bundleFiles) {
     if (path.endsWith('.manifest.json')) {
       hasManifest = true;
